@@ -169,13 +169,50 @@ export default function App() {
     } catch (err) { alert("Gagal cetak PDF: " + err.message); }
   };
 
-  const sendWA = () => {
-    let pesan = `*LAPORAN GUDANG SANTUY*\nOleh: ${currentUser?.nama || 'Admin'}\n\n`;
-    items.forEach(item => {
-      pesan += `- ${item.nama}: *Sisa ${item.stok} ${item.satuan}*\n`;
+ const sendWA = () => {
+  const hariIni = new Date().toLocaleDateString('id-ID', { 
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+  });
+  
+  let pesan = `*📦 LAPORAN GUDANG SANTUY*\n`;
+  pesan += `_Tanggal: ${hariIni}_\n`;
+  pesan += `_Oleh: ${currentUser?.nama.toUpperCase() || 'Admin'}_\n\n`;
+  
+  // 1. AKTIVITAS HARI INI (LOG)
+  pesan += `*─── AKTIVITAS HARI INI ───*\n`;
+  if (dailyLogs.length > 0) {
+    dailyLogs.forEach(log => {
+      const icon = log.aksi === 'masuk' ? '🟢' : '🔴';
+      const aksi = log.aksi === 'masuk' ? 'Masuk' : 'Keluar';
+      pesan += `${icon} ${log.barang?.nama}: ${log.jumlah} ${log.barang?.satuan} (${aksi})\n`;
     });
-    window.open(`https://wa.me/?text=${encodeURIComponent(pesan)}`, '_blank');
-  };
+  } else {
+    pesan += `_(Tidak ada pergerakan barang)_\n`;
+  }
+  pesan += `\n`;
+
+  // 2. SISA STOK GUDANG (SEMUA BARANG)
+  pesan += `*─── SISA STOK GUDANG ───*\n`;
+  items.forEach(item => {
+    pesan += `- ${item.nama}: *${item.stok} ${item.satuan}*\n`;
+  });
+  pesan += `\n`;
+
+  // 3. DAFTAR BELANJA / ORDER (STOK KRITIS)
+  const barangKritis = items.filter(i => i.stok <= i.min_stok);
+  if (barangKritis.length > 0) {
+    pesan += `*─── ⚠️ HARUS ORDER ───*\n`;
+    barangKritis.forEach(i => {
+      pesan += `- ${i.nama} (Sisa ${i.stok}, minimal ${i.min_stok})\n`;
+    });
+    pesan += `\n_Mohon segera di restock!_`;
+  } else {
+    pesan += `*✅ STATUS STOK AMAN*`;
+  }
+
+  const url = `https://wa.me/?text=${encodeURIComponent(pesan)}`;
+  window.open(url, '_blank');
+};
 
   const groupedItems = items.reduce((acc, item) => {
     const cat = (item.kategori || 'LAINNYA').toUpperCase();
