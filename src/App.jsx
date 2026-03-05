@@ -174,7 +174,7 @@ export default function App() {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
   });
   
-  let pesan = `*📦 LAPORAN GUDANG SANTUY*\n`;
+  let pesan = `*📦 LAPORAN GUDANG BONSIP 2*\n`;
   pesan += `_Tanggal: ${hariIni}_\n`;
   pesan += `_Oleh: ${currentUser?.nama.toUpperCase() || 'Admin'}_\n\n`;
   
