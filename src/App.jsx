@@ -9,6 +9,7 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export default function App() {
+  // --- STATES ---
   const [items, setItems] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [history, setHistory] = useState([]);
@@ -19,18 +20,17 @@ export default function App() {
     start: new Date().toISOString().split('T')[0], 
     end: new Date().toISOString().split('T')[0] 
   });
-  
   const [currentUser, setCurrentUser] = useState(null);
   const [daftarKasir, setDaftarKasir] = useState([]);
   const [dailyLogs, setDailyLogs] = useState([]); 
-
   const [pendingChanges, setPendingChanges] = useState({}); 
   const originalStok = useRef({}); 
 
-  // --- LOGIKA QUICK LOOK ---
+  // --- DERIVED STATES (QUICK LOOK) ---
   const totalBarang = items.length;
   const jmlKritis = items.filter(i => i.stok <= i.min_stok).length;
 
+  // --- EFFECTS ---
   useEffect(() => { 
     fetchBarang(); 
     fetchKasir();
@@ -39,6 +39,7 @@ export default function App() {
     if (savedUser) setCurrentUser(JSON.parse(savedUser));
   }, []);
 
+  // --- CORE FUNCTIONS ---
   const fetchBarang = async () => {
     const { data, error } = await supabase.from('barang').select('*').order('nama');
     if (error) console.error("Error Fetch Barang:", error);
@@ -62,7 +63,6 @@ export default function App() {
       .select('*, barang(nama, satuan)')
       .gte('created_at', startOfDay.toISOString())
       .order('created_at', { ascending: false });
-    
     if (error) console.error("Error Fetch Logs:", error);
     setDailyLogs(data || []);
   };
@@ -136,7 +136,7 @@ export default function App() {
     } catch (err) { alert("Error: " + err.message); }
   };
 
-  // --- FUNGSI PDF DENGAN STOK OPNAME ---
+  // --- REPORTING ---
   const generatePDF = async (mode, days = 0) => {
     try {
       const doc = new jsPDF();
@@ -160,16 +160,14 @@ export default function App() {
         .lte('created_at', endDate.toISOString())
         .order('created_at', { ascending: false });
 
-      const labelPeriode = mode === 'preset' ? (days === 0 ? "HARI INI" : `${days + 1} HARI TERAKHIR`) : `${customDate.start} s/d ${customDate.end}`;
+      const labelPeriode = mode === 'preset' ? (days === 0 ? "HARI INI" : `${days + 1} HARI TERAKHIR`) : `${customDate.start} sd ${customDate.end}`;
       
-      doc.setFontSize(20); doc.text('LAPORAN GUDANG SANTUY', 14, 20);
-      doc.setFontSize(10); doc.text(`Dicetak: ${new Date().toLocaleString('id-ID')}`, 14, 28);
-      doc.text(`Periode Laporan: ${labelPeriode}`, 14, 33);
+      doc.setFontSize(20); doc.text('LAPORAN GUDANG BS2', 14, 20);
+      doc.setFontSize(10); doc.text(`Periode: ${labelPeriode}`, 14, 28);
 
-      // TABEL 1: LOG AKTIVITAS
-      doc.setFontSize(12); doc.text('1. RIWAYAT AKTIVITAS', 14, 45);
+      doc.setFontSize(12); doc.text('1. RIWAYAT AKTIVITAS', 14, 40);
       autoTable(doc, {
-        startY: 48,
+        startY: 43,
         head: [['Waktu', 'Barang', 'Oleh', 'Aksi', 'Jumlah', 'Sisa']],
         body: (logs && logs.length > 0) ? logs.map(log => [
           new Date(log.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
@@ -178,50 +176,33 @@ export default function App() {
           log.aksi === 'masuk' ? '+ MASUK' : '- KELUAR',
           `${log.jumlah} ${log.barang?.satuan || ''}`,
           log.stok_sesudah
-        ]) : [['-', 'Tidak ada aktivitas tercatat', '-', '-', '-', '-']],
+        ]) : [['-', 'Tidak ada aktivitas', '-', '-', '-', '-']],
         headStyles: { fillColor: [0, 0, 0] }
       });
 
-      // TABEL 2: STOK OPNAME (Selalu Muncul)
       const nextY = doc.lastAutoTable.finalY + 15;
-      doc.setFontSize(12); doc.text('2. STATUS STOK GUDANG (OPNAME)', 14, nextY);
+      doc.setFontSize(12); doc.text('2. STATUS STOK (OPNAME)', 14, nextY);
       autoTable(doc, {
         startY: nextY + 3,
-        head: [['Nama Barang', 'Kategori', 'Stok Saat Ini', 'Status']],
-        body: items.map(i => [
-          i.nama.toUpperCase(),
-          (i.kategori || 'LAINNYA').toUpperCase(),
-          `${i.stok} ${i.satuan}`,
-          i.stok <= i.min_stok ? '!!! ORDER' : 'AMAN'
-        ]),
+        head: [['Nama Barang', 'Grup', 'Stok', 'Status']],
+        body: items.map(i => [i.nama.toUpperCase(), (i.kategori || 'LAINNYA').toUpperCase(), `${i.stok} ${i.satuan}`, i.stok <= i.min_stok ? '!!! ORDER' : 'AMAN']),
         headStyles: { fillColor: [44, 62, 80] }
       });
 
-      doc.save(`Laporan_Gudang_${labelPeriode}.pdf`);
+      doc.save(`Laporan_${labelPeriode}.pdf`);
       setShowReportModal(false);
     } catch (err) { alert("Gagal PDF: " + err.message); }
   };
 
   const sendWA = () => {
     const hariIni = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    let pesan = `*📦 LAPORAN GUDANG SANTUY*\n_Tanggal: ${hariIni}_\n_Oleh: ${currentUser?.nama.toUpperCase()}_\n\n`;
-    
-    pesan += `*─── AKTIVITAS HARI INI ───*\n`;
-    if (dailyLogs.length > 0) {
-      dailyLogs.forEach(log => {
-        pesan += `${log.aksi === 'masuk' ? '🟢' : '🔴'} ${log.barang?.nama}: ${log.jumlah} ${log.barang?.satuan} (${log.aksi})\n`;
-      });
-    } else { pesan += `_(Tidak ada aktivitas)_\n`; }
-
-    pesan += `\n*─── SISA STOK GUDANG ───*\n`;
+    let pesan = `*📦 LAPORAN GUDANG BS2*\n_Tanggal: ${hariIni}_\n\n*─── SISA STOK ───*\n`;
     items.forEach(i => { pesan += `- ${i.nama}: *${i.stok} ${i.satuan}*\n`; });
-
     const kritis = items.filter(i => i.stok <= i.min_stok);
     if (kritis.length > 0) {
       pesan += `\n*─── ⚠️ HARUS ORDER ───*\n`;
       kritis.forEach(i => { pesan += `- ${i.nama} (Sisa ${i.stok})\n`; });
     }
-
     window.open(`https://wa.me/?text=${encodeURIComponent(pesan)}`, '_blank');
   };
 
@@ -234,7 +215,7 @@ export default function App() {
 
   const bukaDetail = async (item) => {
     setSelectedItem(item);
-    const { data } = await supabase.from('log_aktivitas').select('*').eq('barang_id', item.id).order('created_at', { ascending: false }).limit(20);
+    const { data } = await supabase.from('log_aktivitas').select('*').eq('barang_id', item.id).order('created_at', { ascending: false }).limit(10);
     setHistory(data || []);
   };
 
@@ -257,7 +238,7 @@ export default function App() {
     <div style={layoutStyle}>
       <nav style={navStyle}>
         <div>
-          <h1 style={logoStyle}>GUDANG<br/>SANTUY</h1>
+          <h1 style={logoStyle}>GUDANG<br/>BS2</h1>
           <div style={{display:'flex', alignItems:'center', gap:'5px', marginTop:'5px'}}>
             <div style={badgeStyle}>{currentUser.nama.toUpperCase()}</div>
             <button onClick={handleLogout} style={logoutBtn}><LogOut size={12}/></button>
@@ -276,23 +257,44 @@ export default function App() {
         </div>
       </nav>
 
+      {/* MODAL RIWAYAT PER BARANG */}
+      <AnimatePresence>
+        {selectedItem && (
+          <div style={modalOverlay}>
+            <motion.div initial={{scale:0.8}} animate={{scale:1}} exit={{scale:0.8}} style={modalBox}>
+               <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px'}}>
+                  <h2 style={{margin:0}}>{selectedItem.nama.toUpperCase()}</h2>
+                  <button onClick={() => setSelectedItem(null)} style={{background:'none', border:'none', cursor:'pointer'}}><X/></button>
+               </div>
+               <div style={{maxHeight:'300px', overflowY:'auto'}}>
+                  {history.length > 0 ? history.map(h => (
+                    <div key={h.id} style={{padding:'10px', borderBottom:'1px solid #ddd', fontSize:'0.8rem'}}>
+                      <b>{new Date(h.created_at).toLocaleDateString()}</b> | {h.aksi.toUpperCase()}: {h.jumlah} ({h.kasir_nama})
+                    </div>
+                  )) : <p>Belum ada riwayat.</p>}
+               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* MODAL CETAK PDF */}
       <AnimatePresence>
         {showReportModal && (
           <div style={modalOverlay}>
-            <motion.div initial={{y:50, opacity:0}} animate={{y:0, opacity:1}} exit={{y:50, opacity:0}} style={modalBox}>
+            <motion.div initial={{y:50}} animate={{y:0}} exit={{y:50}} style={modalBox}>
               <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
                 <h2 style={{fontWeight:900, margin:0}}>CETAK PDF</h2>
-                <button onClick={() => setShowReportModal(false)} style={{background:'none', border:'none', cursor:'pointer'}}><X/></button>
+                <button onClick={() => setShowReportModal(false)} style={{background:'none', border:'none'}}><X/></button>
               </div>
               <div style={{display:'grid', gap:'10px'}}>
                 <button onClick={() => generatePDF('preset', 0)} style={mainBtnStyle('#C3FAFF')}>HARI INI</button>
                 <button onClick={() => generatePDF('preset', 6)} style={mainBtnStyle('#99E2B4')}>7 HARI TERAKHIR</button>
-                <div style={{border:'3px solid black', padding:'15px', marginTop:'10px'}}>
-                  <p style={{fontSize:'0.7rem', fontWeight:900, marginBottom:'10px'}}>CUSTOM TANGGAL:</p>
-                  <input type="date" value={customDate.start} onChange={e => setCustomDate({...customDate, start: e.target.value})} style={{...inputStyle, width:'100%', boxSizing:'border-box', marginBottom:'5px'}} />
-                  <input type="date" value={customDate.end} onChange={e => setCustomDate({...customDate, end: e.target.value})} style={{...inputStyle, width:'100%', boxSizing:'border-box'}} />
-                  <button onClick={() => generatePDF('custom')} style={{...mainBtnStyle('#FFD600'), width:'100%', marginTop:'10px'}}>CETAK RANGE</button>
+                <div style={{border:'3px solid black', padding:'15px'}}>
+                  <p style={{fontSize:'0.7rem', fontWeight:900}}>CUSTOM RANGE:</p>
+                  <input type="date" value={customDate.start} onChange={e => setCustomDate({...customDate, start: e.target.value})} style={{...inputStyle, width:'100%', marginBottom:'5px'}} />
+                  <input type="date" value={customDate.end} onChange={e => setCustomDate({...customDate, end: e.target.value})} style={{...inputStyle, width:'100%'}} />
+                  <button onClick={() => generatePDF('custom')} style={{...mainBtnStyle('#FFD600'), width:'100%', marginTop:'10px'}}>CETAK</button>
                 </div>
               </div>
             </motion.div>
@@ -300,41 +302,44 @@ export default function App() {
         )}
       </AnimatePresence>
 
+      {/* QUICK LOOK DASHBOARD */}
       <div style={quickLookWrapper}>
-        <div style={statCard('#C3FAFF')}><span style={statLabel}>TOTAL RAK</span><span style={statValue}>{totalBarang}</span></div>
+        <div style={statCard('#C3FAFF')}><span style={statLabel}>BARANG</span><span style={statValue}>{totalBarang}</span></div>
         <div style={statCard(jmlKritis > 0 ? '#FF9292' : '#99E2B4')}>
-          <span style={statLabel}>STOK TIPIS</span><span style={statValue}>{jmlKritis}</span>
+          <span style={statLabel}>LIMIT</span><span style={statValue}>{jmlKritis}</span>
           {jmlKritis > 0 && <div style={miniAlertBadge}>ORDER!</div>}
         </div>
         <div style={{...statCard('#FFD600'), gridColumn: 'span 2', height: '140px'}}>
-          <span style={statLabel}>AKTIVITAS HARI INI</span>
+          <span style={statLabel}>LOG HARI INI</span>
           <div style={scrollLogWrapper}>
             {dailyLogs.map((log) => (
               <div key={log.id} style={logActivityItem}>
                 <span style={{fontWeight:900}}>{log.kasir_nama.split(' ')[0]}</span>
                 <span style={{margin:'0 5px'}}>{log.aksi === 'masuk' ? '🟢' : '🔴'}</span>
-                <span style={{flex:1, textTransform:'uppercase'}}>{log.barang?.nama} ({log.aksi === 'masuk' ? '+' : '-'}{log.jumlah})</span>
+                <span style={{flex:1}}>{log.barang?.nama} (+{log.jumlah})</span>
               </div>
             ))}
           </div>
         </div>
       </div>
 
+      {/* FORM TAMBAH BARANG */}
       <AnimatePresence>
         {showAddForm && (
-          <motion.form initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} onSubmit={async (e) => {
+          <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} onSubmit={async (e) => {
             e.preventDefault();
             await supabase.from('barang').insert([{ ...newItem, min_stok: parseInt(newItem.min_stok), kategori: newItem.kategori.toUpperCase() || 'LAINNYA' }]);
             setNewItem({ nama: '', satuan: 'pcs', min_stok: 5, kategori: '' }); setShowAddForm(false); fetchBarang();
           }} style={formStyle}>
-            <input placeholder="Nama Barang..." value={newItem.nama} onChange={e => setNewItem({...newItem, nama: e.target.value})} style={inputStyle} required />
-            <input placeholder="Grup (SNACK, MINUMAN, dll)..." value={newItem.kategori} onChange={e => setNewItem({...newItem, kategori: e.target.value})} style={inputStyle} />
-            <div style={{display:'flex', gap:'10px'}}><input placeholder="Satuan" value={newItem.satuan} onChange={e => setNewItem({...newItem, satuan: e.target.value})} style={{...inputStyle, flex:1}} /><input type="number" placeholder="Min" value={newItem.min_stok} onChange={e => setNewItem({...newItem, min_stok: e.target.value})} style={{...inputStyle, width:'80px'}} /></div>
-            <button type="submit" style={mainBtnStyle('#99E2B4')}>TAMBAH KE GUDANG</button>
+            <input placeholder="Nama Barang" value={newItem.nama} onChange={e => setNewItem({...newItem, nama: e.target.value})} style={inputStyle} required />
+            <input placeholder="Grup (Contoh: SNACK)" value={newItem.kategori} onChange={e => setNewItem({...newItem, kategori: e.target.value})} style={inputStyle} />
+            <div style={{display:'flex', gap:'5px'}}><input placeholder="Satuan" value={newItem.satuan} onChange={e => setNewItem({...newItem, satuan: e.target.value})} style={{...inputStyle, flex:1}} /><input type="number" placeholder="Min" value={newItem.min_stok} onChange={e => setNewItem({...newItem, min_stok: e.target.value})} style={{...inputStyle, width:'70px'}} /></div>
+            <button type="submit" style={mainBtnStyle('#99E2B4')}>SIMPAN BARU</button>
           </motion.form>
         )}
       </AnimatePresence>
 
+      {/* MAIN GRID */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
         {Object.entries(groupedItems).map(([kategori, barangSekawan]) => (
           <div key={kategori}>
@@ -342,7 +347,7 @@ export default function App() {
             <div style={gridStyle}>
               {barangSekawan.map(item => (
                 <motion.div layout key={item.id} style={cardStyle(item.stok <= item.min_stok, pendingChanges[item.id])}>
-                  <div style={{display:'flex', justifyContent:'space-between', marginBottom:'8px'}}>
+                  <div style={{display:'flex', justifyContent:'space-between'}}>
                      <input defaultValue={item.kategori} onBlur={(e) => updateKategori(item.id, e.target.value)} style={miniInputGroup} />
                      <button onClick={() => bukaDetail(item)} style={historyBtn}><History size={14}/></button>
                   </div>
@@ -361,7 +366,7 @@ export default function App() {
   );
 }
 
-// STYLES 
+// --- SEMUA STYLES ---
 const layoutStyle = { padding: '20px', maxWidth: '800px', margin: 'auto', minHeight: '100vh', backgroundColor: '#FFFDF0', fontFamily: 'sans-serif' };
 const navStyle = { display: 'flex', justifyContent: 'space-between', marginBottom: '20px' };
 const logoStyle = { fontSize: '2.5rem', fontWeight: '900', lineHeight: '0.8', margin: 0 };
@@ -383,7 +388,7 @@ const btnGroupCard = { display: 'flex', gap: '8px' };
 const actionBtnStyle = (bg) => ({ flex: 1, height: '45px', border: '3px solid black', backgroundColor: bg, boxShadow: '3px 3px 0px black', cursor: 'pointer' });
 const pendingLabel = { position:'absolute', top:'-10px', left:'50%', transform:'translateX(-50%)', backgroundColor:'#FFD600', border:'2px solid black', fontSize:'0.5rem', fontWeight:'bold', padding:'2px 5px' };
 const alertSticker = { position: 'absolute', bottom: '-10px', right: '-10px', backgroundColor: '#FFD600', border: '3px solid black', padding: '4px 8px', fontSize: '0.7rem', fontWeight: '900', transform: 'rotate(-5deg)' };
-const formStyle = { border: '4px solid black', padding: '20px', marginBottom: '30px', backgroundColor: 'white', boxShadow: '10px 10px 0px black', display: 'flex', flexDirection: 'column', gap: '12px' };
+const formStyle = { border: '4px solid black', padding: '20px', marginBottom: '30px', backgroundColor: 'white', boxShadow: '10px 10px 0px black', display: 'flex', flexDirection: 'column', gap: '12px', overflow:'hidden' };
 const inputStyle = { padding: '12px', border: '3px solid black', fontWeight: 'bold' };
 const mainBtnStyle = (bg) => ({ padding: '15px', border: '3px solid black', backgroundColor: bg, fontWeight: '900', cursor: 'pointer', boxShadow: '5px 5px 0px black' });
 const historyBtn = { background: 'none', border: '2px solid black', cursor: 'pointer', padding: '3px' };
