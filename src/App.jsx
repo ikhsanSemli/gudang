@@ -55,11 +55,12 @@ export default function App() {
   };
 
   const fetchDailyLogs = async () => {
-    const today = new Date().toISOString().split('T')[0];
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
     const { data, error } = await supabase
       .from('log_aktivitas')
       .select('*, barang(nama, satuan)')
-      .gte('created_at', today)
+      .gte('created_at', startOfDay.toISOString())
       .order('created_at', { ascending: false });
     
     if (error) console.error("Error Fetch Logs:", error);
@@ -135,7 +136,7 @@ export default function App() {
     } catch (err) { alert("Error: " + err.message); }
   };
 
-  // --- FUNGSI PDF FINAL ---
+  // --- FUNGSI PDF DENGAN STOK OPNAME ---
   const generatePDF = async (mode, days = 0) => {
     try {
       const doc = new jsPDF();
@@ -159,28 +160,44 @@ export default function App() {
         .lte('created_at', endDate.toISOString())
         .order('created_at', { ascending: false });
 
-      if (!logs || logs.length === 0) return alert("Data kosong untuk periode ini.");
-
       const labelPeriode = mode === 'preset' ? (days === 0 ? "HARI INI" : `${days + 1} HARI TERAKHIR`) : `${customDate.start} s/d ${customDate.end}`;
       
-      doc.setFontSize(18); doc.text('LAPORAN GUDANG SANTUY', 14, 20);
-      doc.setFontSize(10); doc.text(`Periode: ${labelPeriode}`, 14, 28);
+      doc.setFontSize(20); doc.text('LAPORAN GUDANG SANTUY', 14, 20);
+      doc.setFontSize(10); doc.text(`Dicetak: ${new Date().toLocaleString('id-ID')}`, 14, 28);
+      doc.text(`Periode Laporan: ${labelPeriode}`, 14, 33);
 
+      // TABEL 1: LOG AKTIVITAS
+      doc.setFontSize(12); doc.text('1. RIWAYAT AKTIVITAS', 14, 45);
       autoTable(doc, {
-        startY: 35,
+        startY: 48,
         head: [['Waktu', 'Barang', 'Oleh', 'Aksi', 'Jumlah', 'Sisa']],
-        body: logs.map(log => [
+        body: (logs && logs.length > 0) ? logs.map(log => [
           new Date(log.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
           log.barang?.nama || 'Terhapus',
           log.kasir_nama.toUpperCase(),
           log.aksi === 'masuk' ? '+ MASUK' : '- KELUAR',
           `${log.jumlah} ${log.barang?.satuan || ''}`,
           log.stok_sesudah
-        ]),
+        ]) : [['-', 'Tidak ada aktivitas tercatat', '-', '-', '-', '-']],
         headStyles: { fillColor: [0, 0, 0] }
       });
 
-      doc.save(`Laporan_${labelPeriode}.pdf`);
+      // TABEL 2: STOK OPNAME (Selalu Muncul)
+      const nextY = doc.lastAutoTable.finalY + 15;
+      doc.setFontSize(12); doc.text('2. STATUS STOK GUDANG (OPNAME)', 14, nextY);
+      autoTable(doc, {
+        startY: nextY + 3,
+        head: [['Nama Barang', 'Kategori', 'Stok Saat Ini', 'Status']],
+        body: items.map(i => [
+          i.nama.toUpperCase(),
+          (i.kategori || 'LAINNYA').toUpperCase(),
+          `${i.stok} ${i.satuan}`,
+          i.stok <= i.min_stok ? '!!! ORDER' : 'AMAN'
+        ]),
+        headStyles: { fillColor: [44, 62, 80] }
+      });
+
+      doc.save(`Laporan_Gudang_${labelPeriode}.pdf`);
       setShowReportModal(false);
     } catch (err) { alert("Gagal PDF: " + err.message); }
   };
