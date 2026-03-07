@@ -7,9 +7,9 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- FIX IMPORT STRATEGY ---
-import { jsPDF } from 'jspdf';
-import 'jspdf-autotable'; 
 
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 export default function App() {
   const [items, setItems] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -134,7 +134,6 @@ export default function App() {
       doc.setFontSize(10); doc.setTextColor(100);
       doc.text(`Periode: ${labelPeriode} | Dicetak: ${printDate}`, 14, 27);
 
-      // --- LOGIKA MUTASI ---
       const mutasiBody = items.map((item, idx) => {
         const itemLogs = logs?.filter(l => l.barang_id === item.id) || [];
         const masuk = itemLogs.filter(l => l.aksi === 'masuk').reduce((sum, l) => sum + l.jumlah, 0);
@@ -149,8 +148,9 @@ export default function App() {
         ];
       });
 
-      // MENGGUNAKAN doc.autoTable (METODE PALING STABIL)
-      doc.autoTable({
+      // 2. GUNAKAN FUNGSI autoTable SECARA LANGSUNG (Bukan doc.autoTable)
+      // Ini lebih aman karena kita mempassing 'doc' sebagai argumen pertama
+      autoTable(doc, {
         startY: 35,
         head: [['No', 'Barang', 'Masuk', 'Keluar', 'Sisa', 'Status']],
         body: mutasiBody,
@@ -158,18 +158,18 @@ export default function App() {
         headStyles: { fillColor: [44, 62, 80] },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 5) {
-             const color = data.cell.raw === 'RE-STOCK' ? [200, 0, 0] : [0, 150, 0];
-             doc.setTextColor(color[0], color[1], color[2]);
+             if (data.cell.raw === 'RE-STOCK') doc.setTextColor(200, 0, 0);
+             else doc.setTextColor(0, 150, 0);
           }
         }
       });
 
-      // DETAIL LOG
       const finalY = doc.lastAutoTable.finalY + 15;
       doc.setFontSize(12); doc.setTextColor(0);
       doc.text('RINCIAN AKTIVITAS HARIAN', 14, finalY);
 
-      doc.autoTable({
+      // Panggil autoTable lagi untuk tabel kedua
+      autoTable(doc, {
         startY: finalY + 5,
         head: [['Waktu', 'Barang', 'Aksi', 'Qty']],
         body: logs?.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(l => [
@@ -184,7 +184,7 @@ export default function App() {
       setShowReportModal(false);
     } catch (err) {
       console.error("Full Error Info:", err);
-      alert("Gagal PDF. Silakan cek console browser (F12).");
+      alert("Gagal PDF: Silakan refresh halaman atau cek koneksi.");
     }
   };
 
