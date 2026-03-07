@@ -14,7 +14,8 @@ export default function App() {
   const [history, setHistory] = useState([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
-  const [newItem, setNewItem] = useState({ nama: '', satuan: 'pcs', min_stok: 5, kategori: '' });
+  // TAMBAHKAN field 'stok' di state newItem
+  const [newItem, setNewItem] = useState({ nama: '', satuan: 'pcs', min_stok: 5, kategori: '', stok: 0 });
   const [customDate, setCustomDate] = useState({ 
     start: new Date().toISOString().split('T')[0], 
     end: new Date().toISOString().split('T')[0] 
@@ -112,7 +113,6 @@ export default function App() {
     } catch (err) { alert("Error: " + err.message); }
   };
 
-  // --- FIX PDF (ERROR f3 FIX) ---
   const generatePDF = async (mode, days = 0) => {
     try {
       const doc = new jsPDF();
@@ -152,7 +152,6 @@ export default function App() {
         headStyles: { fillColor: [44, 62, 80] },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 5) {
-             // FIX ERROR f3: Gunakan angka terpisah, bukan array
              if (data.cell.raw === 'RE-STOCK') doc.setTextColor(200, 0, 0);
              else doc.setTextColor(0, 150, 0);
           }
@@ -179,22 +178,18 @@ export default function App() {
     } catch (err) { alert("Gagal PDF: " + err.message); }
   };
 
-  // --- KEMBALIKAN LAPORAN WA 3 KATEGORI ---
   const sendWA = () => {
     const hariIni = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
     let pesan = `*📦 LAPORAN GUDANG SANTUY*\n_Tanggal: ${hariIni}_\n\n`;
     
-    // 1. Kategori Aktivitas
     pesan += `*─── AKTIVITAS HARI INI ───*\n`;
     if (dailyLogs.length > 0) {
       dailyLogs.forEach(l => { pesan += `${l.aksi === 'masuk' ? '🟢' : '🔴'} ${l.barang?.nama}: ${l.jumlah}\n`; });
     } else { pesan += `_Tidak ada aktivitas_\n`; }
     
-    // 2. Kategori Sisa Stok
     pesan += `\n*─── SISA STOK ───*\n`;
     items.forEach(i => { pesan += `- ${i.nama}: *${i.stok}*\n`; });
     
-    // 3. Kategori Daftar Belanja (Hanya yang Kritis)
     const kritis = items.filter(i => i.stok <= i.min_stok);
     if (kritis.length > 0) {
       pesan += `\n*─── ⚠️ DAFTAR BELANJA ───*\n`;
@@ -244,7 +239,6 @@ export default function App() {
         </div>
       </nav>
 
-      {/* QUICK STATS */}
       <div style={quickLookWrapper}>
         <div style={statCard('#C3FAFF')}><span style={statLabel}>BARANG</span><span style={statValue}>{items.length}</span></div>
         <div style={statCard(items.filter(i => i.stok <= i.min_stok).length > 0 ? '#FF9292' : '#99E2B4')}>
@@ -252,22 +246,38 @@ export default function App() {
         </div>
       </div>
 
-      {/* FORM TAMBAH */}
+      {/* FORM TAMBAH (KEMBALIKAN MIN STOK & TAMBAH STOK AWAL) */}
       <AnimatePresence>
         {showAddForm && (
           <motion.form initial={{y:-20}} animate={{y:0}} onSubmit={async (e) => {
             e.preventDefault();
-            await supabase.from('barang').insert([{ ...newItem, min_stok: parseInt(newItem.min_stok) }]);
-            setNewItem({ nama: '', satuan: 'pcs', min_stok: 5, kategori: '' }); setShowAddForm(false); fetchBarang();
+            await supabase.from('barang').insert([{ 
+                ...newItem, 
+                min_stok: parseInt(newItem.min_stok),
+                stok: parseInt(newItem.stok),
+                kategori: newItem.kategori.toUpperCase() || 'LAINNYA'
+            }]);
+            setNewItem({ nama: '', satuan: 'pcs', min_stok: 5, kategori: '', stok: 0 }); 
+            setShowAddForm(false); 
+            fetchBarang();
           }} style={formStyle}>
             <input placeholder="Nama Barang" value={newItem.nama} onChange={e => setNewItem({...newItem, nama: e.target.value})} style={inputStyle} required />
             <input placeholder="Grup (Contoh: SNACK)" value={newItem.kategori} onChange={e => setNewItem({...newItem, kategori: e.target.value})} style={inputStyle} />
+            <div style={{display:'flex', gap:'10px'}}>
+               <div style={{flex:1}}>
+                 <label style={{fontSize:'0.6rem', fontWeight:900}}>STOK AWAL</label>
+                 <input type="number" value={newItem.stok} onChange={e => setNewItem({...newItem, stok: e.target.value})} style={inputStyle} />
+               </div>
+               <div style={{flex:1}}>
+                 <label style={{fontSize:'0.6rem', fontWeight:900}}>BATAS MINIMUM</label>
+                 <input type="number" value={newItem.min_stok} onChange={e => setNewItem({...newItem, min_stok: e.target.value})} style={inputStyle} />
+               </div>
+            </div>
             <button type="submit" style={mainBtnStyle('#99E2B4')}>TAMBAH BARANG</button>
           </motion.form>
         )}
       </AnimatePresence>
 
-      {/* MODAL PDF */}
       <AnimatePresence>
         {showReportModal && (
           <div style={modalOverlay} onClick={() => setShowReportModal(false)}>
@@ -287,7 +297,6 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* LIST DENGAN KATEGORI */}
       {Object.entries(groupedItems).map(([kategori, list]) => (
         <div key={kategori} style={{marginBottom:'30px'}}>
           <div style={categoryHeader}><span style={categoryTag}>{kategori}</span><div style={categoryLine}></div></div>
@@ -311,14 +320,12 @@ export default function App() {
         </div>
       ))}
 
-      {/* SAVE BAR */}
       {Object.values(pendingChanges).some(v => v !== 0) && (
         <div style={saveBar}>
           <button onClick={handleSaveAll} style={saveBtn}>SIMPAN KE DATABASE</button>
         </div>
       )}
 
-      {/* MODAL HISTORY */}
       <AnimatePresence>
         {selectedItem && (
           <div style={modalOverlay} onClick={() => setSelectedItem(null)}>
@@ -339,7 +346,6 @@ export default function App() {
   );
 }
 
-// --- STYLES (BRUTALISM) ---
 const layoutStyle = { padding: '20px', maxWidth: '800px', margin: 'auto', backgroundColor: '#FFFDF0', minHeight: '100vh', fontFamily: 'sans-serif' };
 const navStyle = { display: 'flex', justifyContent: 'space-between', marginBottom: '30px' };
 const logoStyle = { fontSize: '2rem', fontWeight: 900, lineHeight: 0.8 };
