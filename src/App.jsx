@@ -5,7 +5,7 @@ import {
   LogOut, FileText, Save, RotateCcw, MessageCircle 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import jsPDF from 'jspdf';
+import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export default function App() {
@@ -138,100 +138,98 @@ export default function App() {
   // --- PRO REPORTING (PDF & WA) ---
   const generatePDF = async (mode, days = 0) => {
     try {
+      // Inisialisasi doc
       const doc = new jsPDF();
+      
+      // Tambahan: Pastikan autoTable terdeteksi
+      // Jika menggunakan versi terbaru, cara panggilnya adalah doc.autoTable()
+      
       const printDate = new Date().toLocaleString('id-ID');
       let startDate, endDate;
 
       if (mode === 'preset') {
-        startDate = new Date(); startDate.setDate(startDate.getDate() - days);
-        startDate.setHours(0, 0, 0, 0); endDate = new Date();
+        startDate = new Date(); 
+        startDate.setDate(startDate.getDate() - days);
+        startDate.setHours(0, 0, 0, 0); 
+        endDate = new Date();
       } else {
-        startDate = new Date(customDate.start); startDate.setHours(0, 0, 0, 0);
-        endDate = new Date(customDate.end); endDate.setHours(23, 59, 59, 999);
+        startDate = new Date(customDate.start); 
+        startDate.setHours(0, 0, 0, 0);
+        endDate = new Date(customDate.end); 
+        endDate.setHours(23, 59, 59, 999);
       }
 
-      const { data: logs } = await supabase.from('log_aktivitas').select('*, barang(nama, satuan)')
-        .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).order('created_at', { ascending: false });
-      
+      // Ambil data logs dari Supabase
+      const { data: logs, error: logError } = await supabase
+        .from('log_aktivitas')
+        .select('*, barang(nama, satuan)')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .order('created_at', { ascending: false });
+
+      if (logError) throw logError;
+
       const labelPeriode = mode === 'preset' ? (days === 0 ? "HARI INI" : `${days + 1} HARI TERAKHIR`) : `${customDate.start} sd ${customDate.end}`;
       
-      // Header Desain
-      doc.setFontSize(22); doc.setTextColor(44, 62, 80);
-      doc.text('LAPORAN MUTASI & OPNAME GUDANG', 14, 20);
-      doc.setFontSize(10); doc.setTextColor(100);
-      doc.text(`Periode Laporan : ${labelPeriode}`, 14, 28);
-      doc.text(`Dicetak Pada    : ${printDate} oleh ${currentUser.nama.toUpperCase()}`, 14, 33);
+      // Header
+      doc.setFontSize(20);
+      doc.text('LAPORAN MUTASI GUDANG', 14, 20);
+      doc.setFontSize(10);
+      doc.text(`Periode: ${labelPeriode}`, 14, 28);
+      doc.text(`User: ${currentUser.nama.toUpperCase()} | ${printDate}`, 14, 33);
 
-      // --- LOGIKA HITUNG MUTASI PER BARANG ---
-      const mutasiData = items.map((item, idx) => {
+      // --- TABEL 1: MUTASI ---
+      const mutasiBody = items.map((item, idx) => {
         const itemLogs = logs?.filter(l => l.barang_id === item.id) || [];
-        const totalMasuk = itemLogs.filter(l => l.aksi === 'masuk').reduce((sum, l) => sum + l.jumlah, 0);
-        const totalKeluar = itemLogs.filter(l => l.aksi === 'keluar').reduce((sum, l) => sum + l.jumlah, 0);
+        const masuk = itemLogs.filter(l => l.aksi === 'masuk').reduce((sum, l) => sum + l.jumlah, 0);
+        const keluar = itemLogs.filter(l => l.aksi === 'keluar').reduce((sum, l) => sum + l.jumlah, 0);
         return [
           idx + 1,
           item.nama.toUpperCase(),
-          totalMasuk > 0 ? `+${totalMasuk}` : '0',
-          totalKeluar > 0 ? `-${totalKeluar}` : '0',
+          masuk,
+          keluar,
           item.stok,
-          item.satuan,
           item.stok <= item.min_stok ? 'RE-STOCK' : 'AMAN'
         ];
       });
 
-      // --- TABEL 1: REKAPITULASI MUTASI & STOK ---
-      doc.setFontSize(14); doc.setTextColor(0);
-      doc.text('I. RINGKASAN PERGERAKAN BARANG (MUTASI)', 14, 45);
-      autoTable(doc, {
-        startY: 48,
-        head: [['No', 'Nama Barang', 'Masuk', 'Keluar', 'Stok Akhir', 'Unit', 'Status']],
-        body: mutasiData,
-        headStyles: { fillColor: [44, 62, 80], fontStyle: 'bold' },
-        columnStyles: {
-          2: { halign: 'center', textColor: [39, 174, 96], fontStyle: 'bold' },
-          3: { halign: 'center', textColor: [231, 76, 60], fontStyle: 'bold' },
-          4: { halign: 'center', fontStyle: 'bold' },
-          6: { fontStyle: 'bold' }
-        },
+      // GUNAKAN doc.autoTable (bukan autoTable langsung)
+      doc.autoTable({
+        startY: 40,
+        head: [['No', 'Barang', 'Masuk', 'Keluar', 'Sisa', 'Status']],
+        body: mutasiBody,
+        theme: 'grid',
+        headStyles: { fillColor: [44, 62, 80] },
         didDrawCell: (data) => {
-           if (data.section === 'body' && data.column.index === 6) {
-             doc.setTextColor(data.cell.raw === 'RE-STOCK' ? [231, 76, 60] : [39, 174, 96]);
-           }
+          if (data.section === 'body' && data.column.index === 5) {
+            if (data.cell.raw === 'RE-STOCK') doc.setTextColor(200, 0, 0);
+            else doc.setTextColor(0, 150, 0);
+          }
         }
       });
 
-      // --- TABEL 2: DETAIL TRANSAKSI (AUDIT LOG) ---
-      const nextY = doc.lastAutoTable.finalY + 15;
-      doc.setFontSize(14); doc.setTextColor(0);
-      doc.text('II. RINCIAN AKTIVITAS HARIAN', 14, nextY);
-      autoTable(doc, {
-        startY: nextY + 3,
-        head: [['Waktu', 'Barang', 'Admin', 'Keterangan', 'Qty', 'Sisa']],
-        body: logs?.map(log => [
-          new Date(log.created_at).toLocaleString('id-ID', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' }),
-          log.barang?.nama || 'Deleted',
-          log.kasir_nama.split(' ')[0],
-          log.aksi.toUpperCase(),
-          log.aksi === 'masuk' ? `+${log.jumlah}` : `-${log.jumlah}`,
-          log.stok_sesudah
-        ]) || [['-', 'No Data', '-', '-', '-', '-']],
-        headStyles: { fillColor: [52, 73, 94] },
-        columnStyles: { 4: { fontStyle: 'bold' }, 5: { halign: 'center' } }
+      // --- TABEL 2: DETAIL LOG ---
+      doc.text('DETAIL AKTIVITAS:', 14, doc.lastAutoTable.finalY + 10);
+      doc.autoTable({
+        startY: doc.lastAutoTable.finalY + 15,
+        head: [['Waktu', 'Barang', 'Aksi', 'Qty']],
+        body: logs.map(l => [
+          new Date(l.created_at).toLocaleTimeString('id-ID'),
+          l.barang?.nama || '-',
+          l.aksi.toUpperCase(),
+          l.jumlah
+        ]),
+        headStyles: { fillColor: [100, 100, 100] }
       });
 
-      // Footer
-      const finalY = doc.lastAutoTable.finalY + 20;
-      if (finalY < 260) {
-        doc.setFontSize(10);
-        doc.text('Dicetak secara sistem otomatis.', 14, finalY);
-        doc.text('Penanggung Jawab,', 150, finalY);
-        doc.text(`( ${currentUser.nama.toUpperCase()} )`, 150, finalY + 25);
-      }
-
-      doc.save(`Mutasi_Gudang_${labelPeriode}.pdf`);
+      doc.save(`Laporan_${labelPeriode}.pdf`);
       setShowReportModal(false);
-    } catch (err) { alert("PDF Error: " + err.message); }
+    } catch (err) {
+      console.error("Detail Error:", err);
+      alert("Gagal cetak PDF. Pastikan library jspdf & jspdf-autotable sudah terinstall.");
+    }
   };
-
+  
   const sendWA = () => {
     const hariIni = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     let pesan = `*📦 LAPORAN GUDANG SANTUY*\n_Tanggal: ${hariIni}_\n\n`;
