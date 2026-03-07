@@ -61,7 +61,11 @@ export default function App() {
     const { data, error } = await supabase
       .from('log_aktivitas')
       .select('*, barang(nama, satuan)')
+<<<<<<< Updated upstream
       .gte('created_at', startOfDay.toISOString())
+=======
+      .gte('created_at', today)
+>>>>>>> Stashed changes
       .order('created_at', { ascending: false });
     if (error) console.error("Error Fetch Logs:", error);
     setDailyLogs(data || []);
@@ -133,10 +137,17 @@ export default function App() {
       await fetchDailyLogs(); 
       alert("Database Terupdate! ✅");
       handleLogout();
+<<<<<<< Updated upstream
     } catch (err) { alert("Error: " + err.message); }
   };
 
   // --- REPORTING ---
+=======
+    } catch (err) { alert("⚠️ Gagal Simpan: " + err.message); }
+  };
+
+  // --- REPORTING (PDF & WA) ---
+>>>>>>> Stashed changes
   const generatePDF = async (mode, days = 0) => {
     try {
       const doc = new jsPDF();
@@ -153,6 +164,7 @@ export default function App() {
         endDate = new Date(customDate.end);
         endDate.setHours(23, 59, 59, 999);
       }
+<<<<<<< Updated upstream
 
       const { data: logs } = await supabase.from('log_aktivitas')
         .select('*, barang(nama, satuan)')
@@ -180,13 +192,43 @@ export default function App() {
         headStyles: { fillColor: [0, 0, 0] }
       });
 
+=======
+      const { data: logs } = await supabase.from('log_aktivitas').select('*, barang(nama, satuan)')
+        .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).order('created_at', { ascending: false });
+      
+      const labelPeriode = mode === 'preset' ? (days === 0 ? "HARI INI" : `${days + 1} HARI TERAKHIR`) : `${customDate.start} sd ${customDate.end}`;
+      
+      doc.setFontSize(18); doc.text('LAPORAN GUDANG SANTUY', 14, 15);
+      doc.setFontSize(10); doc.text(`Periode: ${labelPeriode}`, 14, 22);
+
+      // Tabel 1: Riwayat
+      doc.setFontSize(12); doc.text('1. RIWAYAT AKTIVITAS', 14, 35);
+      autoTable(doc, {
+        startY: 38,
+        head: [['Waktu', 'Barang', 'Oleh', 'Aksi', 'Jumlah', 'Sisa']],
+        body: logs?.map(log => [
+          new Date(log.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
+          log.barang?.nama || 'Terhapus', log.kasir_nama.toUpperCase(), log.aksi === 'masuk' ? '+ MASUK' : '- KELUAR',
+          `${log.jumlah} ${log.barang?.satuan || ''}`, log.stok_sesudah
+        ]) || [['-', 'Kosong', '-', '-', '-', '-']],
+        headStyles: { fillColor: [44, 62, 80] }
+      });
+
+      // Tabel 2: Stok Opname
+>>>>>>> Stashed changes
       const nextY = doc.lastAutoTable.finalY + 15;
       doc.setFontSize(12); doc.text('2. STATUS STOK (OPNAME)', 14, nextY);
       autoTable(doc, {
         startY: nextY + 3,
+<<<<<<< Updated upstream
         head: [['Nama Barang', 'Grup', 'Stok', 'Status']],
         body: items.map(i => [i.nama.toUpperCase(), (i.kategori || 'LAINNYA').toUpperCase(), `${i.stok} ${i.satuan}`, i.stok <= i.min_stok ? '!!! ORDER' : 'AMAN']),
         headStyles: { fillColor: [44, 62, 80] }
+=======
+        head: [['Nama Barang', 'Kategori', 'Stok', 'Status']],
+        body: items.map(i => [i.nama.toUpperCase(), i.kategori || 'LAINNYA', `${i.stok} ${i.satuan}`, i.stok <= i.min_stok ? '!!! ORDER' : 'AMAN']),
+        headStyles: { fillColor: [0, 0, 0] }
+>>>>>>> Stashed changes
       });
 
       doc.save(`Laporan_${labelPeriode}.pdf`);
@@ -195,6 +237,7 @@ export default function App() {
   };
 
   const sendWA = () => {
+<<<<<<< Updated upstream
     const hariIni = new Date().toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
     let pesan = `*📦 LAPORAN GUDANG BS2*\n_Tanggal: ${hariIni}_\n\n*─── SISA STOK ───*\n`;
     items.forEach(i => { pesan += `- ${i.nama}: *${i.stok} ${i.satuan}*\n`; });
@@ -203,6 +246,43 @@ export default function App() {
       pesan += `\n*─── ⚠️ HARUS ORDER ───*\n`;
       kritis.forEach(i => { pesan += `- ${i.nama} (Sisa ${i.stok})\n`; });
     }
+=======
+    const hariIni = new Date().toLocaleDateString('id-ID', { 
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+    });
+    
+    let pesan = `*📦 LAPORAN GUDANG SANTUY*\n`;
+    pesan += `_Tanggal: ${hariIni}_\n`;
+    pesan += `_Oleh: ${currentUser?.nama.toUpperCase() || 'Admin'}_\n\n`;
+    
+    pesan += `*─── AKTIVITAS HARI INI ───*\n`;
+    if (dailyLogs.length > 0) {
+      dailyLogs.forEach(log => {
+        const aksi = log.aksi === 'masuk' ? '🟢 [MASUK]' : '🔴 [KELUAR]';
+        pesan += `${aksi} ${log.barang?.nama}: ${log.jumlah} ${log.barang?.satuan}\n`;
+      });
+    } else {
+      pesan += `_(Tidak ada aktivitas hari ini)_\n`;
+    }
+    pesan += `\n`;
+
+    pesan += `*─── SISA STOK GUDANG ───*\n`;
+    items.forEach(i => {
+      pesan += `- ${i.nama}: *${i.stok} ${i.satuan}*\n`;
+    });
+    pesan += `\n`;
+
+    const kritis = items.filter(i => i.stok <= i.min_stok);
+    if (kritis.length > 0) {
+      pesan += `*─── ⚠️ HARUS ORDER (BELANJA) ───*\n`;
+      kritis.forEach(i => {
+        pesan += `- ${i.nama} (Sisa ${i.stok}, Minimal ${i.min_stok})\n`;
+      });
+    } else {
+      pesan += `*✅ STATUS STOK AMAN*`;
+    }
+
+>>>>>>> Stashed changes
     window.open(`https://wa.me/?text=${encodeURIComponent(pesan)}`, '_blank');
   };
 
@@ -219,6 +299,7 @@ export default function App() {
     setHistory(data || []);
   };
 
+  // --- UI RENDER ---
   if (!currentUser) {
     return (
       <div style={loginWrapper}>
@@ -257,17 +338,27 @@ export default function App() {
         </div>
       </nav>
 
+<<<<<<< Updated upstream
       {/* MODAL RIWAYAT PER BARANG */}
+=======
+      {/* --- MODALS --- */}
+>>>>>>> Stashed changes
       <AnimatePresence>
         {selectedItem && (
           <div style={modalOverlay}>
             <motion.div initial={{scale:0.8}} animate={{scale:1}} exit={{scale:0.8}} style={modalBox}>
+<<<<<<< Updated upstream
                <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px'}}>
                   <h2 style={{margin:0}}>{selectedItem.nama.toUpperCase()}</h2>
+=======
+               <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px', borderBottom:'3px solid black', paddingBottom:'10px'}}>
+                  <h2 style={{margin:0, fontSize:'1.1rem'}}>{selectedItem.nama.toUpperCase()}</h2>
+>>>>>>> Stashed changes
                   <button onClick={() => setSelectedItem(null)} style={{background:'none', border:'none', cursor:'pointer'}}><X/></button>
                </div>
                <div style={{maxHeight:'300px', overflowY:'auto'}}>
                   {history.length > 0 ? history.map(h => (
+<<<<<<< Updated upstream
                     <div key={h.id} style={{padding:'10px', borderBottom:'1px solid #ddd', fontSize:'0.8rem'}}>
                       <b>{new Date(h.created_at).toLocaleDateString()}</b> | {h.aksi.toUpperCase()}: {h.jumlah} ({h.kasir_nama})
                     </div>
@@ -324,6 +415,75 @@ export default function App() {
       </div>
 
       {/* FORM TAMBAH BARANG */}
+=======
+                    <div key={h.id} style={{padding:'10px', borderBottom:'1px solid #ddd', fontSize:'0.7rem', display:'flex', justifyContent:'space-between'}}>
+                      <span><b>{new Date(h.created_at).toLocaleDateString()}</b> | {h.aksi.toUpperCase()}</span>
+                      <span>{h.jumlah} {selectedItem.satuan} ({h.kasir_nama})</span>
+                    </div>
+                  )) : <p style={{fontSize:'0.7rem'}}>Belum ada riwayat.</p>}
+               </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showReportModal && (
+          <div style={modalOverlay}>
+            <motion.div initial={{y:50}} animate={{y:0}} exit={{y:50}} style={modalBox}>
+              <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
+                <h2 style={{fontWeight:900, margin:0}}>CETAK PDF</h2>
+                <button onClick={() => setShowReportModal(false)} style={{background:'none', border:'none'}}><X/></button>
+              </div>
+              <div style={{display:'grid', gap:'10px'}}>
+                <button onClick={() => generatePDF('preset', 0)} style={mainBtnStyle('#C3FAFF')}>HARI INI</button>
+                <button onClick={() => generatePDF('preset', 6)} style={mainBtnStyle('#99E2B4')}>7 HARI TERAKHIR</button>
+                <div style={{border:'3px solid black', padding:'15px', backgroundColor:'#f5f5f5'}}>
+                  <p style={{fontSize:'0.7rem', fontWeight:900, marginBottom:'5px'}}>CUSTOM RANGE:</p>
+                  <input type="date" value={customDate.start} onChange={e => setCustomDate({...customDate, start: e.target.value})} style={{...inputStyle, width:'100%', marginBottom:'5px'}} />
+                  <input type="date" value={customDate.end} onChange={e => setCustomDate({...customDate, end: e.target.value})} style={{...inputStyle, width:'100%'}} />
+                  <button onClick={() => generatePDF('custom')} style={{...mainBtnStyle('#FFD600'), width:'100%', marginTop:'10px'}}>CETAK</button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DASHBOARD QUICK LOOK */}
+      <div style={quickLookWrapper}>
+        <motion.div whileHover={{y:-5}} style={statCard('#C3FAFF')}><span style={statLabel}>BARANG</span><span style={statValue}>{totalBarang}</span></motion.div>
+        <motion.div whileHover={{y:-5}} style={statCard(jmlKritis > 0 ? '#FF9292' : '#99E2B4')}>
+          <span style={statLabel}>LIMIT</span><span style={statValue}>{jmlKritis}</span>
+          {jmlKritis > 0 && <div style={miniAlertBadge}>ORDER!</div>}
+        </motion.div>
+        <div style={{...statCard('#FFD600'), gridColumn: 'span 2', height: '160px'}}>
+          <span style={statLabel}>LOG AKTIVITAS HARI INI ({dailyLogs.length})</span>
+          <div style={scrollLogWrapper}>
+            {dailyLogs.length > 0 ? dailyLogs.map((log) => (
+              <div key={log.id} style={logActivityItem}>
+                <span style={{fontWeight: 900, minWidth: '50px'}}>{log.kasir_nama.split(' ')[0]}</span>
+                <span style={{
+                  backgroundColor: log.aksi === 'masuk' ? '#99E2B4' : '#FF9292',
+                  border: '1.5px solid black',
+                  padding: '1px 4px',
+                  fontSize: '0.5rem',
+                  fontWeight: '900',
+                  margin: '0 8px'
+                }}>
+                  {log.aksi === 'masuk' ? 'MASUK' : 'KELUAR'}
+                </span>
+                <span style={{flex: 1, textTransform: 'uppercase', fontWeight: 'bold'}}>
+                  {log.barang?.nama} ({log.aksi === 'masuk' ? '+' : '-'}{log.jumlah})
+                </span>
+              </div>
+            )) : (
+              <div style={{fontSize:'0.7rem', textAlign:'center', marginTop:'20px', opacity:0.5}}>Belum ada aktivitas.</div>
+            )}
+          </div>
+        </div>
+      </div>
+
+
+>>>>>>> Stashed changes
       <AnimatePresence>
         {showAddForm && (
           <motion.form initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} onSubmit={async (e) => {
@@ -334,7 +494,11 @@ export default function App() {
             <input placeholder="Nama Barang" value={newItem.nama} onChange={e => setNewItem({...newItem, nama: e.target.value})} style={inputStyle} required />
             <input placeholder="Grup (Contoh: SNACK)" value={newItem.kategori} onChange={e => setNewItem({...newItem, kategori: e.target.value})} style={inputStyle} />
             <div style={{display:'flex', gap:'5px'}}><input placeholder="Satuan" value={newItem.satuan} onChange={e => setNewItem({...newItem, satuan: e.target.value})} style={{...inputStyle, flex:1}} /><input type="number" placeholder="Min" value={newItem.min_stok} onChange={e => setNewItem({...newItem, min_stok: e.target.value})} style={{...inputStyle, width:'70px'}} /></div>
+<<<<<<< Updated upstream
             <button type="submit" style={mainBtnStyle('#99E2B4')}>SIMPAN BARU</button>
+=======
+            <button type="submit" style={mainBtnStyle('#99E2B4')}>SIMPAN RAK</button>
+>>>>>>> Stashed changes
           </motion.form>
         )}
       </AnimatePresence>
@@ -366,7 +530,11 @@ export default function App() {
   );
 }
 
+<<<<<<< Updated upstream
 // --- SEMUA STYLES ---
+=======
+// --- STYLES ---
+>>>>>>> Stashed changes
 const layoutStyle = { padding: '20px', maxWidth: '800px', margin: 'auto', minHeight: '100vh', backgroundColor: '#FFFDF0', fontFamily: 'sans-serif' };
 const navStyle = { display: 'flex', justifyContent: 'space-between', marginBottom: '20px' };
 const logoStyle = { fontSize: '2.5rem', fontWeight: '900', lineHeight: '0.8', margin: 0 };
@@ -382,7 +550,11 @@ const categoryHeaderStyle = { display: 'flex', alignItems: 'center', gap: '15px'
 const categoryTitleStyle = { fontSize: '1.1rem', fontWeight: '900', backgroundColor: 'black', color: 'white', padding: '5px 15px', transform: 'skewX(-10deg)' };
 const categoryLineStyle = { flex: 1, height: '4px', backgroundColor: 'black' };
 const miniInputGroup = { fontSize: '0.6rem', fontWeight: '900', border: '2px solid black', padding: '2px 5px', backgroundColor: '#EEE', width: '60px', textAlign: 'center' };
+<<<<<<< Updated upstream
 const itemTitle = { fontSize: '1.1rem', fontWeight: '900', margin: '10px 0 5px 0', textTransform: 'uppercase' };
+=======
+const itemTitle = { fontSize: '1.1rem', fontWeight: '900', margin: '10px 0 5px 0', textTransform: 'uppercase', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+>>>>>>> Stashed changes
 const stokDisplay = { fontSize: '3.5rem', fontWeight: '900', letterSpacing: '-3px', margin: '10px 0' };
 const btnGroupCard = { display: 'flex', gap: '8px' };
 const actionBtnStyle = (bg) => ({ flex: 1, height: '45px', border: '3px solid black', backgroundColor: bg, boxShadow: '3px 3px 0px black', cursor: 'pointer' });
@@ -397,7 +569,14 @@ const statCard = (bg) => ({ padding: '15px', border: '4px solid black', backgrou
 const statLabel = { fontSize: '0.6rem', fontWeight: '900', letterSpacing: '1px' };
 const statValue = { fontSize: '2rem', fontWeight: '900', lineHeight: '1' };
 const miniAlertBadge = { position: 'absolute', top: '-10px', right: '-10px', backgroundColor: 'black', color: 'white', fontSize: '0.5rem', padding: '2px 6px', fontWeight: 'bold' };
+<<<<<<< Updated upstream
 const scrollLogWrapper = { marginTop: '10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '5px', height: '80px' };
 const logActivityItem = { display: 'flex', alignItems: 'center', fontSize: '0.65rem', padding: '5px', backgroundColor: 'rgba(255,255,255,0.4)', border: '2px solid black' };
 const modalOverlay = { position:'fixed', top:0, left:0, right:0, bottom:0, backgroundColor:'rgba(0,0,0,0.8)', display:'flex', justifyContent:'center', alignItems:'center', zIndex:1000 };
 const modalBox = { backgroundColor:'white', border:'5px solid black', padding:'30px', boxShadow:'15px 15px 0px black', width:'90%', maxWidth:'400px' };
+=======
+const scrollLogWrapper = { marginTop: '10px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '5px', height: '100px' };
+const logActivityItem = { display: 'flex', alignItems: 'center', fontSize: '0.65rem', padding: '5px', backgroundColor: 'rgba(255,255,255,0.4)', border: '2px solid black' };
+const modalOverlay = { position:'fixed', top:0, left:0, right:0, bottom:0, backgroundColor:'rgba(0,0,0,0.8)', display:'flex', justifyContent:'center', alignItems:'center', zIndex:1000 };
+const modalBox = { backgroundColor:'white', border:'5px solid black', padding:'30px', boxShadow:'15px 15px 0px black', width:'90%', maxWidth:'400px' };
+>>>>>>> Stashed changes
