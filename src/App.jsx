@@ -166,18 +166,33 @@ export default function App() {
 
       const finalY = doc.lastAutoTable.finalY + 15;
       doc.setFontSize(12); doc.setTextColor(0);
-      doc.text('RINCIAN AKTIVITAS HARIAN', 14, finalY);
+      doc.text('II. RINCIAN AKTIVITAS HARIAN (LOG)', 14, finalY);
 
-      // Panggil autoTable lagi untuk tabel kedua
       autoTable(doc, {
         startY: finalY + 5,
-        head: [['Waktu', 'Barang', 'Aksi', 'Qty']],
+        // Tambahkan kolom 'Tanggal' dan 'Admin' di head
+        head: [['Tanggal & Waktu', 'Barang', 'Admin', 'Aksi', 'Qty', 'Sisa']],
         body: logs?.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(l => [
-          new Date(l.created_at).toLocaleString('id-ID', { hour:'2-digit', minute:'2-digit' }),
-          l.barang?.nama || '-', l.aksi.toUpperCase(), l.jumlah
+          // Format tanggal: 08 Mar, 14:30
+          new Date(l.created_at).toLocaleString('id-ID', { 
+            day: '2-digit', 
+            month: 'short', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          }),
+          l.barang?.nama || '-', 
+          l.kasir_nama || '-', // Menampilkan nama orangnya
+          l.aksi.toUpperCase(), 
+          l.aksi === 'masuk' ? `+${l.jumlah}` : `-${l.jumlah}`,
+          l.stok_sesudah
         ]) || [],
         theme: 'striped',
-        headStyles: { fillColor: [100, 100, 100] }
+        headStyles: { fillColor: [100, 100, 100] },
+        columnStyles: {
+          0: { cellWidth: 35 }, // Kolom waktu agak lebar karena ada tanggal
+          2: { cellWidth: 25 }, // Kolom admin
+          4: { fontStyle: 'bold', halign: 'center' }
+        }
       });
 
       doc.save(`Mutasi_${labelPeriode.replace(/ /g, '_')}.pdf`);
