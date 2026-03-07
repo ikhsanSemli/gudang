@@ -5,12 +5,11 @@ import {
   LogOut, FileText, Save, RotateCcw, MessageCircle 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-
-// --- FIX IMPORT STRATEGY ---
-
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+
 export default function App() {
+  // --- STATES ---
   const [items, setItems] = useState([]);
   const [selectedItem, setSelectedItem] = useState(null);
   const [history, setHistory] = useState([]);
@@ -27,9 +26,11 @@ export default function App() {
   const [pendingChanges, setPendingChanges] = useState({}); 
   const originalStok = useRef({}); 
 
+  // --- LOGIKA QUICK LOOK ---
   const totalBarang = items.length;
   const jmlKritis = items.filter(i => i.stok <= i.min_stok).length;
 
+  // --- EFFECTS ---
   useEffect(() => { 
     fetchBarang(); 
     fetchKasir();
@@ -38,6 +39,7 @@ export default function App() {
     if (savedUser) setCurrentUser(JSON.parse(savedUser));
   }, []);
 
+  // --- CORE FUNCTIONS ---
   const fetchBarang = async () => {
     const { data } = await supabase.from('barang').select('*').order('nama');
     const safeData = data || [];
@@ -67,6 +69,15 @@ export default function App() {
     localStorage.removeItem('gudang_user');
   };
 
+  const updateKategori = async (id, kategoriBaru) => {
+    const formattedCat = kategoriBaru.toUpperCase() || 'LAINNYA';
+    try {
+      const { error } = await supabase.from('barang').update({ kategori: formattedCat }).eq('id', id);
+      if (error) throw error;
+      fetchBarang(); 
+    } catch (err) { alert("Gagal ganti grup: " + err.message); }
+  };
+
   const updateStokLokal = (item, perubahan) => {
     if (!currentUser) return alert("Pilih namamu dulu!");
     setItems(prevItems => {
@@ -84,6 +95,14 @@ export default function App() {
       }
       return newItems;
     });
+  };
+
+  const handleResetDraft = () => {
+    setItems(prev => prev.map(item => ({
+      ...item,
+      stok: originalStok.current[item.id] !== undefined ? originalStok.current[item.id] : item.stok
+    })));
+    setPendingChanges({});
   };
 
   const handleSaveAll = async () => {
@@ -104,12 +123,12 @@ export default function App() {
       }
       setPendingChanges({});
       await fetchDailyLogs(); 
-      alert("Tersimpan! ✅");
+      alert("Database Terupdate! ✅");
       handleLogout();
-    } catch (err) { alert("Error: " + err.message); }
+    } catch (err) { alert("⚠️ Gagal Simpan: " + err.message); }
   };
 
-  // --- FINAL FIX FOR PDF GENERATOR ---
+  // --- PDF GENERATOR (STABLE VERSION) ---
   const generatePDF = async (mode, days = 0) => {
     try {
       const doc = new jsPDF();
@@ -132,24 +151,16 @@ export default function App() {
       doc.setFontSize(18); doc.setTextColor(40);
       doc.text('LAPORAN MUTASI & STOK GUDANG', 14, 20);
       doc.setFontSize(10); doc.setTextColor(100);
-      doc.text(`Periode: ${labelPeriode} | Dicetak: ${printDate}`, 14, 27);
+      doc.text(`Periode: ${labelPeriode} | Dicetak: ${printDate} oleh ${currentUser.nama}`, 14, 27);
 
+      // TABEL 1: MUTASI STOK
       const mutasiBody = items.map((item, idx) => {
         const itemLogs = logs?.filter(l => l.barang_id === item.id) || [];
         const masuk = itemLogs.filter(l => l.aksi === 'masuk').reduce((sum, l) => sum + l.jumlah, 0);
         const keluar = itemLogs.filter(l => l.aksi === 'keluar').reduce((sum, l) => sum + l.jumlah, 0);
-        return [
-          idx + 1,
-          item.nama.toUpperCase(),
-          masuk > 0 ? `+${masuk}` : '0',
-          keluar > 0 ? `-${keluar}` : '0',
-          item.stok,
-          item.stok <= item.min_stok ? 'RE-STOCK' : 'AMAN'
-        ];
+        return [idx + 1, item.nama.toUpperCase(), `+${masuk}`, `-${keluar}`, item.stok, item.stok <= item.min_stok ? 'RE-STOCK' : 'AMAN'];
       });
 
-      // 2. GUNAKAN FUNGSI autoTable SECARA LANGSUNG (Bukan doc.autoTable)
-      // Ini lebih aman karena kita mempassing 'doc' sebagai argumen pertama
       autoTable(doc, {
         startY: 35,
         head: [['No', 'Barang', 'Masuk', 'Keluar', 'Sisa', 'Status']],
@@ -158,67 +169,55 @@ export default function App() {
         headStyles: { fillColor: [44, 62, 80] },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 5) {
-             if (data.cell.raw === 'RE-STOCK') doc.setTextColor(200, 0, 0);
-             else doc.setTextColor(0, 150, 0);
+             doc.setTextColor(data.cell.raw === 'RE-STOCK' ? [200, 0, 0] : [0, 150, 0]);
           }
         }
       });
 
+      // TABEL 2: DETAIL AKTIVITAS
       const finalY = doc.lastAutoTable.finalY + 15;
       doc.setFontSize(12); doc.setTextColor(0);
-      doc.text('II. RINCIAN AKTIVITAS HARIAN (LOG)', 14, finalY);
+      doc.text('RINCIAN AKTIVITAS HARIAN', 14, finalY);
 
       autoTable(doc, {
         startY: finalY + 5,
-        // Tambahkan kolom 'Tanggal' dan 'Admin' di head
         head: [['Tanggal & Waktu', 'Barang', 'Admin', 'Aksi', 'Qty', 'Sisa']],
         body: logs?.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(l => [
-          // Format tanggal: 08 Mar, 14:30
-          new Date(l.created_at).toLocaleString('id-ID', { 
-            day: '2-digit', 
-            month: 'short', 
-            hour: '2-digit', 
-            minute: '2-digit' 
-          }),
-          l.barang?.nama || '-', 
-          l.kasir_nama || '-', // Menampilkan nama orangnya
-          l.aksi.toUpperCase(), 
-          l.aksi === 'masuk' ? `+${l.jumlah}` : `-${l.jumlah}`,
-          l.stok_sesudah
+          new Date(l.created_at).toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }),
+          l.barang?.nama || '-', l.kasir_nama || '-', l.aksi.toUpperCase(), l.aksi === 'masuk' ? `+${l.jumlah}` : `-${l.jumlah}`, l.stok_sesudah
         ]) || [],
         theme: 'striped',
-        headStyles: { fillColor: [100, 100, 100] },
-        columnStyles: {
-          0: { cellWidth: 35 }, // Kolom waktu agak lebar karena ada tanggal
-          2: { cellWidth: 25 }, // Kolom admin
-          4: { fontStyle: 'bold', halign: 'center' }
-        }
+        headStyles: { fillColor: [100, 100, 100] }
       });
 
-      doc.save(`Mutasi_${labelPeriode.replace(/ /g, '_')}.pdf`);
+      doc.save(`Laporan_Gudang_${labelPeriode.replace(/ /g, '_')}.pdf`);
       setShowReportModal(false);
-    } catch (err) {
-      console.error("Full Error Info:", err);
-      alert("Gagal PDF: Silakan refresh halaman atau cek koneksi.");
-    }
+    } catch (err) { console.error(err); alert("Gagal PDF"); }
   };
 
   const sendWA = () => {
     const hariIni = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long' });
-    let pesan = `*📦 LAPORAN GUDANG SANTUY*\n_Tanggal: ${hariIni}_\n\n`;
-    pesan += `*─── AKTIVITAS HARI INI ───*\n`;
+    let pesan = `*📦 LAPORAN GUDANG*\n_Tanggal: ${hariIni}_\n\n*─── AKTIVITAS HARI INI ───*\n`;
     dailyLogs.forEach(l => { pesan += `${l.aksi === 'masuk' ? '🟢' : '🔴'} ${l.barang?.nama}: ${l.jumlah}\n`; });
     pesan += `\n*─── SISA STOK ───*\n`;
     items.forEach(i => { pesan += `- ${i.nama}: *${i.stok}*\n`; });
-    const kritis = items.filter(i => i.stok <= i.min_stok);
-    if (kritis.length > 0) {
-      pesan += `\n*─── ⚠️ DAFTAR BELANJA ───*\n`;
-      kritis.forEach(i => { pesan += `- ${i.nama} (Sisa ${i.stok})\n`; });
-    }
     window.open(`https://wa.me/?text=${encodeURIComponent(pesan)}`, '_blank');
   };
 
-  // --- UI RENDER (Login & Dashboard) ---
+  const groupedItems = items.reduce((acc, item) => {
+    const cat = (item.kategori || 'LAINNYA').toUpperCase();
+    if (!acc[cat]) acc[cat] = [];
+    acc[cat].push(item);
+    return acc;
+  }, {});
+
+  const bukaDetail = async (item) => {
+    setSelectedItem(item);
+    const { data } = await supabase.from('log_aktivitas').select('*').eq('barang_id', item.id).order('created_at', { ascending: false }).limit(20);
+    setHistory(data || []);
+  };
+
+  // --- RENDER ---
   if (!currentUser) {
     return (
       <div style={loginWrapper}>
@@ -240,29 +239,104 @@ export default function App() {
       <nav style={navStyle}>
         <div><h1 style={logoStyle}>GUDANG<br/>SANTUY</h1><div style={badgeStyle}>{currentUser.nama.toUpperCase()}</div></div>
         <div style={{display:'flex', gap:'10px'}}>
-          <button onClick={sendWA} style={iconBtnStyle('#25D366')} title="Kirim WA"><MessageCircle/></button>
-          <button onClick={() => setShowReportModal(true)} style={iconBtnStyle('#99E2B4')} title="Cetak PDF"><FileText/></button>
-          <button onClick={handleLogout} style={iconBtnStyle('#FF9292')} title="Logout"><LogOut/></button>
+          <button onClick={sendWA} style={iconBtnStyle('#25D366')}><MessageCircle/></button>
+          <button onClick={() => setShowAddForm(!showAddForm)} style={iconBtnStyle('#C3FAFF')}><PackagePlus/></button>
+          <button onClick={() => setShowReportModal(true)} style={iconBtnStyle('#99E2B4')}><FileText/></button>
+          <button onClick={handleLogout} style={iconBtnStyle('#FF9292')}><LogOut/></button>
         </div>
       </nav>
 
-      {/* MODAL PDF */}
-      <AnimatePresence>
-        {showReportModal && (
-          <div style={modalOverlay}>
-            <motion.div initial={{scale:0.9}} animate={{scale:1}} exit={{scale:0.9}} style={modalBox}>
-              <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-                <h2 style={{fontWeight:900, margin:0}}>LAPORAN MUTASI</h2>
-                <button onClick={() => setShowReportModal(false)} style={{background:'none', border:'none'}}><X/></button>
+      {/* DASHBOARD STATS */}
+      <div style={quickLookWrapper}>
+        <div style={statCard('#C3FAFF')}><span style={statLabel}>TOTAL BARANG</span><span style={statValue}>{totalBarang}</span></div>
+        <div style={statCard(jmlKritis > 0 ? '#FF9292' : '#99E2B4')}><span style={statLabel}>STOK KRITIS</span><span style={statValue}>{jmlKritis}</span></div>
+        <div style={{...statCard('#FFD600'), gridColumn:'span 2', height:'140px'}}>
+          <span style={statLabel}>LOG HARI INI</span>
+          <div style={scrollLogWrapper}>
+            {dailyLogs.map(l => (
+              <div key={l.id} style={logItem}>
+                <span style={{backgroundColor: l.aksi === 'masuk' ? '#99E2B4' : '#FF9292', padding:'2px 5px', border:'2px solid black', fontSize:'0.5rem', fontWeight:900}}>{l.aksi.toUpperCase()}</span>
+                <span style={{flex:1, marginLeft:'10px', fontWeight:'bold'}}>{l.barang?.nama} ({l.jumlah})</span>
               </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* FORM TAMBAH */}
+      <AnimatePresence>
+        {showAddForm && (
+          <motion.form initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} onSubmit={async (e) => {
+            e.preventDefault();
+            await supabase.from('barang').insert([{ ...newItem, min_stok: parseInt(newItem.min_stok), kategori: newItem.kategori.toUpperCase() || 'LAINNYA' }]);
+            setNewItem({ nama: '', satuan: 'pcs', min_stok: 5, kategori: '' }); setShowAddForm(false); fetchBarang();
+          }} style={formStyle}>
+            <input placeholder="Nama Barang" value={newItem.nama} onChange={e => setNewItem({...newItem, nama: e.target.value})} style={inputStyle} required />
+            <input placeholder="Kategori (Contoh: SNACK)" value={newItem.kategori} onChange={e => setNewItem({...newItem, kategori: e.target.value})} style={inputStyle} />
+            <div style={{display:'flex', gap:'5px'}}>
+              <input placeholder="Unit" value={newItem.satuan} onChange={e => setNewItem({...newItem, satuan: e.target.value})} style={{...inputStyle, flex:1}} />
+              <input type="number" placeholder="Min" value={newItem.min_stok} onChange={e => setNewItem({...newItem, min_stok: e.target.value})} style={{...inputStyle, width:'80px'}} />
+            </div>
+            <button type="submit" style={mainBtnStyle('#99E2B4')}>TAMBAH BARANG</button>
+          </motion.form>
+        )}
+      </AnimatePresence>
+
+      {/* LIST BARANG PER KATEGORI */}
+      {Object.entries(groupedItems).map(([kategori, barangSekawan]) => (
+        <div key={kategori} style={{marginBottom:'30px'}}>
+          <div style={categoryHeaderStyle}><span style={categoryTitleStyle}>{kategori}</span><div style={categoryLineStyle}></div></div>
+          <div style={gridStyle}>
+            {barangSekawan.map(item => (
+              <div key={item.id} style={cardStyle(item.stok <= item.min_stok, pendingChanges[item.id])}>
+                <div style={{display:'flex', justifyContent:'space-between'}}>
+                   <input defaultValue={item.kategori} onBlur={(e) => updateKategori(item.id, e.target.value)} style={miniInput} />
+                   <button onClick={() => bukaDetail(item)} style={historyBtn}><History size={14}/></button>
+                </div>
+                <h2 style={itemTitle}>{item.nama}</h2>
+                <div style={stokDisplay}>{item.stok}</div>
+                <div style={{display:'flex', gap:'8px'}}>
+                  <button onClick={() => updateStokLokal(item, -1)} style={actionBtn('#FF9292')}><Minus/></button>
+                  <button onClick={() => updateStokLokal(item, 1)} style={actionBtn('#99E2B4')}><Plus/></button>
+                </div>
+                {item.stok <= item.min_stok && <div style={alertSticker}>ORDER!</div>}
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* MODAL RIWAYAT */}
+      <AnimatePresence>
+        {selectedItem && (
+          <div style={modalOverlay} onClick={() => setSelectedItem(null)}>
+            <motion.div initial={{scale:0.8}} animate={{scale:1}} style={modalBox} onClick={e => e.stopPropagation()}>
+               <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px', borderBottom:'3px solid black'}}>
+                  <h2 style={{margin:0}}>{selectedItem.nama}</h2>
+                  <button onClick={() => setSelectedItem(null)} style={{background:'none', border:'none'}}><X/></button>
+               </div>
+               <div style={{maxHeight:'250px', overflowY:'auto'}}>
+                  {history.map(h => (
+                    <div key={h.id} style={{padding:'8px', borderBottom:'1px solid #ddd', fontSize:'0.7rem'}}>
+                      <b>{new Date(h.created_at).toLocaleDateString()}</b> | {h.aksi.toUpperCase()} {h.jumlah} ({h.kasir_nama})
+                    </div>
+                  ))}
+               </div>
+            </motion.div>
+          </div>
+        )}
+        
+        {showReportModal && (
+          <div style={modalOverlay} onClick={() => setShowReportModal(false)}>
+            <motion.div initial={{y:20}} animate={{y:0}} style={modalBox} onClick={e => e.stopPropagation()}>
+              <h2 style={{fontWeight:900, marginBottom:'15px'}}>CETAK LAPORAN</h2>
               <div style={{display:'grid', gap:'10px'}}>
                 <button onClick={() => generatePDF('preset', 0)} style={mainBtnStyle('#C3FAFF')}>HARI INI</button>
                 <button onClick={() => generatePDF('preset', 6)} style={mainBtnStyle('#99E2B4')}>7 HARI TERAKHIR</button>
-                <div style={{border:'3px solid black', padding:'15px', backgroundColor:'#f5f5f5'}}>
-                  <p style={{fontSize:'0.7rem', fontWeight:900}}>RENTANG TANGGAL:</p>
-                  <input type="date" value={customDate.start} onChange={e => setCustomDate({...customDate, start: e.target.value})} style={inputStyle} />
-                  <input type="date" value={customDate.end} onChange={e => setCustomDate({...customDate, end: e.target.value})} style={inputStyle} />
-                  <button onClick={() => generatePDF('custom')} style={{...mainBtnStyle('#000'), color:'#fff', width:'100%', marginTop:'10px'}}>CETAK</button>
+                <div style={{border:'2px solid black', padding:'10px', background:'#f9f9f9'}}>
+                   <input type="date" value={customDate.start} onChange={e => setCustomDate({...customDate, start: e.target.value})} style={inputStyle} />
+                   <input type="date" value={customDate.end} onChange={e => setCustomDate({...customDate, end: e.target.value})} style={inputStyle} />
+                   <button onClick={() => generatePDF('custom')} style={mainBtnStyle('#000')}>CETAK CUSTOM</button>
                 </div>
               </div>
             </motion.div>
@@ -270,49 +344,18 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* DASHBOARD STATS */}
-      <div style={quickLookWrapper}>
-        <div style={statCard('#C3FAFF')}><span style={statLabel}>BARANG</span><span style={statValue}>{totalBarang}</span></div>
-        <div style={statCard(jmlKritis > 0 ? '#FF9292' : '#99E2B4')}><span style={statLabel}>LIMIT</span><span style={statValue}>{jmlKritis}</span></div>
-        <div style={{...statCard('#FFD600'), gridColumn:'span 2', height:'140px'}}>
-          <span style={statLabel}>AKTIVITAS HARI INI</span>
-          <div style={scrollLogWrapper}>
-            {dailyLogs.length > 0 ? dailyLogs.map(l => (
-              <div key={l.id} style={logItem}>
-                <span style={{backgroundColor: l.aksi === 'masuk' ? '#99E2B4' : '#FF9292', padding:'2px 5px', border:'2px solid black', fontSize:'0.5rem', fontWeight:900}}>{l.aksi.toUpperCase()}</span>
-                <span style={{flex:1, marginLeft:'10px', fontWeight:'bold'}}>{l.barang?.nama} ({l.jumlah})</span>
-              </div>
-            )) : <p style={{fontSize:'0.7rem', textAlign:'center', marginTop:'15px', opacity:0.5}}>Belum ada aktivitas.</p>}
-          </div>
-        </div>
-      </div>
-
-      {/* SAVE BUTTON DRAFT */}
+      {/* SAVE BAR */}
       {Object.values(pendingChanges).some(v => v !== 0) && (
-        <motion.div initial={{y:20}} animate={{y:0}} style={saveContainer}>
+        <div style={saveBar}>
+          <button onClick={handleResetDraft} style={resetBtn}><RotateCcw/></button>
           <button onClick={handleSaveAll} style={saveBtn}>SIMPAN KE DATABASE</button>
-        </motion.div>
+        </div>
       )}
-
-      {/* MAIN LIST */}
-      <div style={gridStyle}>
-        {items.map(item => (
-          <div key={item.id} style={cardStyle(item.stok <= item.min_stok, pendingChanges[item.id])}>
-            <h2 style={itemTitle}>{item.nama}</h2>
-            <div style={stokDisplay}>{item.stok}</div>
-            <div style={{display:'flex', gap:'10px'}}>
-              <button onClick={() => updateStokLokal(item, -1)} style={actionBtn('#FF9292')}><Minus/></button>
-              <button onClick={() => updateStokLokal(item, 1)} style={actionBtn('#99E2B4')}><Plus/></button>
-            </div>
-            {item.stok <= item.min_stok && <div style={alertSticker}>ORDER!</div>}
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
 
-// --- STYLES (BRUTALISM) ---
+// --- STYLES ---
 const layoutStyle = { padding: '20px', maxWidth: '800px', margin: 'auto', backgroundColor: '#FFFDF0', minHeight: '100vh', fontFamily: 'sans-serif' };
 const navStyle = { display: 'flex', justifyContent: 'space-between', marginBottom: '30px' };
 const logoStyle = { fontSize: '2rem', fontWeight: 900, lineHeight: 0.8, margin: 0 };
@@ -326,15 +369,22 @@ const statLabel = { fontSize: '0.6rem', fontWeight: 900, display: 'block' };
 const statValue = { fontSize: '2.5rem', fontWeight: 900 };
 const scrollLogWrapper = { marginTop: '10px', height: '80px', overflowY: 'auto' };
 const logItem = { display: 'flex', alignItems: 'center', fontSize: '0.6rem', marginBottom: '5px', borderBottom: '1px solid black', paddingBottom: '3px' };
+const categoryHeaderStyle = { display: 'flex', alignItems: 'center', gap: '15px', marginBottom: '15px' };
+const categoryTitleStyle = { fontSize: '1rem', fontWeight: 900, backgroundColor: 'black', color: 'white', padding: '4px 12px' };
+const categoryLineStyle = { flex: 1, height: '3px', backgroundColor: 'black' };
 const gridStyle = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: '20px' };
-const cardStyle = (low, pending) => ({ padding: '20px', border: '4px solid black', backgroundColor: low ? '#FFD1D1' : 'white', boxShadow: pending ? '8px 8px 0px #FFD600' : '6px 6px 0px black', position: 'relative' });
-const itemTitle = { fontSize: '1rem', fontWeight: 900, margin: '0 0 10px 0', textTransform: 'uppercase' };
-const stokDisplay = { fontSize: '3rem', fontWeight: 900, marginBottom: '15px' };
+const cardStyle = (low, pending) => ({ padding: '15px', border: '4px solid black', backgroundColor: low ? '#FFD1D1' : 'white', boxShadow: pending ? '8px 8px 0px #FFD600' : '6px 6px 0px black', position: 'relative' });
+const itemTitle = { fontSize: '1rem', fontWeight: 900, margin: '10px 0', textTransform: 'uppercase' };
+const stokDisplay = { fontSize: '3rem', fontWeight: 900, marginBottom: '10px' };
 const actionBtn = (bg) => ({ flex: 1, padding: '10px', border: '3px solid black', backgroundColor: bg, cursor: 'pointer', display: 'flex', justifyContent: 'center' });
 const alertSticker = { position: 'absolute', top: '-10px', right: '-10px', backgroundColor: '#FFD600', border: '3px solid black', padding: '2px 8px', fontWeight: 900, fontSize: '0.7rem', transform: 'rotate(5deg)' };
-const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
-const modalBox = { backgroundColor: 'white', border: '5px solid black', padding: '30px', boxShadow: '15px 15px 0px black', width: '90%', maxWidth: '400px' };
-const mainBtnStyle = (bg) => ({ padding: '12px', border: '3px solid black', backgroundColor: bg, fontWeight: 900, cursor: 'pointer', width: '100%' });
+const formStyle = { border: '4px solid black', padding: '20px', marginBottom: '30px', backgroundColor: 'white', display: 'flex', flexDirection: 'column', gap: '10px', boxShadow: '8px 8px 0px black' };
 const inputStyle = { width: '100%', padding: '10px', border: '2px solid black', marginBottom: '5px', fontWeight: 'bold' };
-const saveContainer = { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 100, width: '90%', maxWidth: '400px' };
-const saveBtn = { width: '100%', padding: '15px', backgroundColor: '#FFD600', border: '4px solid black', fontWeight: 900, boxShadow: '6px 6px 0px black', cursor: 'pointer' };
+const miniInput = { fontSize: '0.6rem', border: '2px solid black', width: '60px', textAlign: 'center', backgroundColor: '#eee' };
+const historyBtn = { background: 'none', border: '2px solid black', cursor: 'pointer', padding: '3px' };
+const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.8)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 };
+const modalBox = { backgroundColor: 'white', border: '5px solid black', padding: '25px', boxShadow: '15px 15px 0px black', width: '90%', maxWidth: '400px' };
+const mainBtnStyle = (bg) => ({ padding: '12px', border: '3px solid black', backgroundColor: bg, fontWeight: 900, cursor: 'pointer', width: '100%', color: bg === '#000' ? '#fff' : '#000' });
+const saveBar = { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', zIndex: 100, display: 'flex', gap: '10px', width: '90%', maxWidth: '400px' };
+const saveBtn = { flex: 1, padding: '15px', backgroundColor: '#FFD600', border: '4px solid black', fontWeight: 900, boxShadow: '6px 6px 0px black', cursor: 'pointer' };
+const resetBtn = { width: '60px', backgroundColor: '#FF9292', border: '4px solid black', boxShadow: '6px 6px 0px black', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' };
