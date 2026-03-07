@@ -139,7 +139,9 @@ export default function App() {
   const generatePDF = async (mode, days = 0) => {
     try {
       const doc = new jsPDF();
+      const timestamp = new Date().toLocaleString('id-ID');
       let startDate, endDate;
+
       if (mode === 'preset') {
         startDate = new Date(); startDate.setDate(startDate.getDate() - days);
         startDate.setHours(0, 0, 0, 0); endDate = new Date();
@@ -147,40 +149,93 @@ export default function App() {
         startDate = new Date(customDate.start); startDate.setHours(0, 0, 0, 0);
         endDate = new Date(customDate.end); endDate.setHours(23, 59, 59, 999);
       }
+
       const { data: logs } = await supabase.from('log_aktivitas').select('*, barang(nama, satuan)')
         .gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString()).order('created_at', { ascending: false });
       
       const labelPeriode = mode === 'preset' ? (days === 0 ? "HARI INI" : `${days + 1} HARI TERAKHIR`) : `${customDate.start} sd ${customDate.end}`;
       
-      doc.setFontSize(18); doc.text('LAPORAN GUDANG SANTUY', 14, 15);
-      doc.setFontSize(10); doc.text(`Periode: ${labelPeriode}`, 14, 22);
+      // HEADER LAPORAN
+      doc.setFontSize(20); doc.setTextColor(40);
+      doc.text('LAPORAN STOCK OPNAME GUDANG', 14, 20);
+      
+      doc.setFontSize(10); doc.setTextColor(100);
+      doc.text(`Periode Laporan : ${labelPeriode}`, 14, 28);
+      doc.text(`Dicetak Pada    : ${timestamp}`, 14, 33);
+      doc.text(`Dicetak Oleh    : ${currentUser.nama.toUpperCase()}`, 14, 38);
 
-      // Tabel 1: Riwayat
-      doc.setFontSize(12); doc.text('1. RIWAYAT AKTIVITAS', 14, 35);
+      // --- TABEL 1: RINGKASAN STOK SAAT INI (KESEHATAN GUDANG) ---
+      doc.setFontSize(14); doc.setTextColor(0);
+      doc.text('I. STATUS STOK GUDANG TERKINI', 14, 50);
+      
       autoTable(doc, {
-        startY: 38,
-        head: [['Waktu', 'Barang', 'Oleh', 'Aksi', 'Jumlah', 'Sisa']],
-        body: logs?.map(log => [
-          new Date(log.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }),
-          log.barang?.nama || 'Terhapus', log.kasir_nama.toUpperCase(), log.aksi === 'masuk' ? '+ MASUK' : '- KELUAR',
-          `${log.jumlah} ${log.barang?.satuan || ''}`, log.stok_sesudah
-        ]) || [['-', 'Kosong', '-', '-', '-', '-']],
-        headStyles: { fillColor: [44, 62, 80] }
+        startY: 53,
+        head: [['No', 'Nama Barang', 'Kategori', 'Stok Akhir', 'Satuan', 'Status']],
+        body: items.map((i, index) => [
+          index + 1,
+          i.nama.toUpperCase(),
+          i.kategori || 'LAINNYA',
+          i.stok,
+          i.satuan,
+          i.stok <= i.min_stok ? 'RE-STOCK' : 'AMAN'
+        ]),
+        headStyles: { fillColor: [52, 73, 94], textColor: 255, fontStyle: 'bold' },
+        columnStyles: {
+          3: { halign: 'center', fontStyle: 'bold' },
+          5: { fontStyle: 'bold' }
+        },
+        didDrawCell: (data) => {
+          if (data.section === 'body' && data.column.index === 5) {
+            const cellValue = data.cell.raw;
+            if (cellValue === 'RE-STOCK') {
+              doc.setTextColor(231, 76, 60); // Warna merah untuk peringatan
+            } else {
+              doc.setTextColor(39, 174, 96); // Warna hijau untuk aman
+            }
+          }
+        }
       });
 
-      // Tabel 2: Stok Opname
+      // --- TABEL 2: RIWAYAT MUTASI BARANG (LOG) ---
       const nextY = doc.lastAutoTable.finalY + 15;
-      doc.setFontSize(12); doc.text('2. STATUS STOK (OPNAME)', 14, nextY);
+      doc.setFontSize(14); doc.setTextColor(0);
+      doc.text('II. RIWAYAT MUTASI BARANG', 14, nextY);
+      
       autoTable(doc, {
         startY: nextY + 3,
-        head: [['Nama Barang', 'Kategori', 'Stok', 'Status']],
-        body: items.map(i => [i.nama.toUpperCase(), i.kategori || 'LAINNYA', `${i.stok} ${i.satuan}`, i.stok <= i.min_stok ? '!!! ORDER' : 'AMAN']),
-        headStyles: { fillColor: [0, 0, 0] }
+        head: [['Tanggal & Waktu', 'Nama Barang', 'Admin', 'Aksi', 'Qty', 'Sisa Akhir']],
+        body: logs?.map(log => [
+          new Date(log.created_at).toLocaleString('id-ID', { 
+            day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
+          }),
+          log.barang?.nama || 'Terhapus',
+          log.kasir_nama.split(' ')[0],
+          log.aksi === 'masuk' ? 'BARANG MASUK' : 'BARANG KELUAR',
+          log.aksi === 'masuk' ? `+${log.jumlah}` : `-${log.jumlah}`,
+          log.stok_sesudah
+        ]) || [['-', 'Tidak ada data mutasi', '-', '-', '-', '-']],
+        headStyles: { fillColor: [44, 62, 80], textColor: 255 },
+        columnStyles: {
+          4: { halign: 'center', fontStyle: 'bold' },
+          5: { halign: 'center', fontStyle: 'bold' }
+        }
       });
 
-      doc.save(`Laporan_${labelPeriode}.pdf`);
+      // FOOTER UNTUK TANDA TANGAN
+      const finalY = doc.lastAutoTable.finalY + 20;
+      if (finalY < 250) {
+        doc.setFontSize(10);
+        doc.text('Penanggung Jawab,', 150, finalY);
+        doc.text('__________________', 150, finalY + 20);
+        doc.text(`( ${currentUser.nama.toUpperCase()} )`, 150, finalY + 25);
+      }
+
+      doc.save(`Laporan_Opname_${labelPeriode.replace(/ /g, '_')}.pdf`);
       setShowReportModal(false);
-    } catch (err) { alert("Gagal PDF: " + err.message); }
+    } catch (err) { 
+      console.error(err);
+      alert("Gagal PDF: " + err.message); 
+    }
   };
 
   const sendWA = () => {
