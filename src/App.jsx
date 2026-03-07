@@ -6,9 +6,9 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// --- FIX IMPORT PDF ---
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+// --- FIX IMPORT STRATEGY ---
+import { jsPDF } from 'jspdf';
+import 'jspdf-autotable'; 
 
 export default function App() {
   const [items, setItems] = useState([]);
@@ -109,7 +109,7 @@ export default function App() {
     } catch (err) { alert("Error: " + err.message); }
   };
 
-  // --- REFINED PDF GENERATOR ---
+  // --- FINAL FIX FOR PDF GENERATOR ---
   const generatePDF = async (mode, days = 0) => {
     try {
       const doc = new jsPDF();
@@ -129,14 +129,12 @@ export default function App() {
 
       const labelPeriode = mode === 'preset' ? (days === 0 ? "HARI INI" : `${days + 1} HARI TERAKHIR`) : `${customDate.start} sd ${customDate.end}`;
 
-      // Desain Header
       doc.setFontSize(18); doc.setTextColor(40);
       doc.text('LAPORAN MUTASI & STOK GUDANG', 14, 20);
       doc.setFontSize(10); doc.setTextColor(100);
-      doc.text(`Periode: ${labelPeriode}`, 14, 27);
-      doc.text(`Admin: ${currentUser.nama.toUpperCase()} | Dicetak: ${printDate}`, 14, 32);
+      doc.text(`Periode: ${labelPeriode} | Dicetak: ${printDate}`, 14, 27);
 
-      // --- TABEL 1: RINGKASAN MUTASI ---
+      // --- LOGIKA MUTASI ---
       const mutasiBody = items.map((item, idx) => {
         const itemLogs = logs?.filter(l => l.barang_id === item.id) || [];
         const masuk = itemLogs.filter(l => l.aksi === 'masuk').reduce((sum, l) => sum + l.jumlah, 0);
@@ -151,39 +149,42 @@ export default function App() {
         ];
       });
 
-      autoTable(doc, {
-        startY: 40,
-        head: [['No', 'Nama Barang', 'Masuk', 'Keluar', 'Sisa', 'Status']],
+      // MENGGUNAKAN doc.autoTable (METODE PALING STABIL)
+      doc.autoTable({
+        startY: 35,
+        head: [['No', 'Barang', 'Masuk', 'Keluar', 'Sisa', 'Status']],
         body: mutasiBody,
+        theme: 'grid',
         headStyles: { fillColor: [44, 62, 80] },
-        columnStyles: { 2: { textColor: [39, 174, 96] }, 3: { textColor: [231, 76, 60] }, 4: { fontStyle: 'bold' } },
         didDrawCell: (data) => {
           if (data.section === 'body' && data.column.index === 5) {
-             doc.setTextColor(data.cell.raw === 'RE-STOCK' ? [231, 76, 60] : [39, 174, 96]);
+             const color = data.cell.raw === 'RE-STOCK' ? [200, 0, 0] : [0, 150, 0];
+             doc.setTextColor(color[0], color[1], color[2]);
           }
         }
       });
 
-      // --- TABEL 2: DETAIL TRANSAKSI ---
+      // DETAIL LOG
       const finalY = doc.lastAutoTable.finalY + 15;
       doc.setFontSize(12); doc.setTextColor(0);
       doc.text('RINCIAN AKTIVITAS HARIAN', 14, finalY);
 
-      autoTable(doc, {
+      doc.autoTable({
         startY: finalY + 5,
-        head: [['Waktu', 'Barang', 'Admin', 'Aksi', 'Qty', 'Sisa']],
+        head: [['Waktu', 'Barang', 'Aksi', 'Qty']],
         body: logs?.sort((a,b) => new Date(b.created_at) - new Date(a.created_at)).map(l => [
           new Date(l.created_at).toLocaleString('id-ID', { hour:'2-digit', minute:'2-digit' }),
-          l.barang?.nama || '-', l.kasir_nama.split(' ')[0], l.aksi.toUpperCase(), l.jumlah, l.stok_sesudah
-        ]) || [['-', 'Kosong', '-', '-', '-', '-']],
+          l.barang?.nama || '-', l.aksi.toUpperCase(), l.jumlah
+        ]) || [],
+        theme: 'striped',
         headStyles: { fillColor: [100, 100, 100] }
       });
 
       doc.save(`Mutasi_${labelPeriode.replace(/ /g, '_')}.pdf`);
       setShowReportModal(false);
     } catch (err) {
-      console.error(err);
-      alert("Gagal cetak PDF: " + err.message);
+      console.error("Full Error Info:", err);
+      alert("Gagal PDF. Silakan cek console browser (F12).");
     }
   };
 
@@ -207,8 +208,8 @@ export default function App() {
     return (
       <div style={loginWrapper}>
         <div style={loginCard}>
-          <h1 style={{textAlign:'center', fontWeight:900}}>GUDANG<br/>SANTUY</h1>
-          <p style={{textAlign:'center', fontSize:'0.7rem', marginBottom:'20px'}}>PILIH NAMA KAMU</p>
+          <h1 style={{textAlign:'center', fontWeight:900, fontSize:'2rem', margin:0}}>GUDANG</h1>
+          <h1 style={{textAlign:'center', fontWeight:900, fontSize:'2rem', marginBottom:'20px'}}>SANTUY</h1>
           <div style={{display:'grid', gap:'10px'}}>
             {daftarKasir.map(k => (
               <button key={k.id} onClick={() => handleLogin(k)} style={mainBtnStyle('#C3FAFF')}>{k.nama.toUpperCase()}</button>
@@ -224,9 +225,9 @@ export default function App() {
       <nav style={navStyle}>
         <div><h1 style={logoStyle}>GUDANG<br/>SANTUY</h1><div style={badgeStyle}>{currentUser.nama.toUpperCase()}</div></div>
         <div style={{display:'flex', gap:'10px'}}>
-          <button onClick={sendWA} style={iconBtnStyle('#25D366')}><MessageCircle/></button>
-          <button onClick={() => setShowReportModal(true)} style={iconBtnStyle('#99E2B4')}><FileText/></button>
-          <button onClick={handleLogout} style={iconBtnStyle('#FF9292')}><LogOut/></button>
+          <button onClick={sendWA} style={iconBtnStyle('#25D366')} title="Kirim WA"><MessageCircle/></button>
+          <button onClick={() => setShowReportModal(true)} style={iconBtnStyle('#99E2B4')} title="Cetak PDF"><FileText/></button>
+          <button onClick={handleLogout} style={iconBtnStyle('#FF9292')} title="Logout"><LogOut/></button>
         </div>
       </nav>
 
@@ -236,7 +237,7 @@ export default function App() {
           <div style={modalOverlay}>
             <motion.div initial={{scale:0.9}} animate={{scale:1}} exit={{scale:0.9}} style={modalBox}>
               <div style={{display:'flex', justifyContent:'space-between', marginBottom:'20px'}}>
-                <h2 style={{fontWeight:900, margin:0}}>CETAK MUTASI</h2>
+                <h2 style={{fontWeight:900, margin:0}}>LAPORAN MUTASI</h2>
                 <button onClick={() => setShowReportModal(false)} style={{background:'none', border:'none'}}><X/></button>
               </div>
               <div style={{display:'grid', gap:'10px'}}>
@@ -257,16 +258,16 @@ export default function App() {
       {/* DASHBOARD STATS */}
       <div style={quickLookWrapper}>
         <div style={statCard('#C3FAFF')}><span style={statLabel}>BARANG</span><span style={statValue}>{totalBarang}</span></div>
-        <div style={statCard(jmlKritis > 0 ? '#FF9292' : '#99E2B4')}><span style={statLabel}>ORDER</span><span style={statValue}>{jmlKritis}</span></div>
+        <div style={statCard(jmlKritis > 0 ? '#FF9292' : '#99E2B4')}><span style={statLabel}>LIMIT</span><span style={statValue}>{jmlKritis}</span></div>
         <div style={{...statCard('#FFD600'), gridColumn:'span 2', height:'140px'}}>
           <span style={statLabel}>AKTIVITAS HARI INI</span>
           <div style={scrollLogWrapper}>
-            {dailyLogs.map(l => (
+            {dailyLogs.length > 0 ? dailyLogs.map(l => (
               <div key={l.id} style={logItem}>
                 <span style={{backgroundColor: l.aksi === 'masuk' ? '#99E2B4' : '#FF9292', padding:'2px 5px', border:'2px solid black', fontSize:'0.5rem', fontWeight:900}}>{l.aksi.toUpperCase()}</span>
                 <span style={{flex:1, marginLeft:'10px', fontWeight:'bold'}}>{l.barang?.nama} ({l.jumlah})</span>
               </div>
-            ))}
+            )) : <p style={{fontSize:'0.7rem', textAlign:'center', marginTop:'15px', opacity:0.5}}>Belum ada aktivitas.</p>}
           </div>
         </div>
       </div>
@@ -274,7 +275,7 @@ export default function App() {
       {/* SAVE BUTTON DRAFT */}
       {Object.values(pendingChanges).some(v => v !== 0) && (
         <motion.div initial={{y:20}} animate={{y:0}} style={saveContainer}>
-          <button onClick={handleSaveAll} style={saveBtn}>SIMPAN PERUBAHAN KE DATABASE</button>
+          <button onClick={handleSaveAll} style={saveBtn}>SIMPAN KE DATABASE</button>
         </motion.div>
       )}
 
@@ -296,7 +297,7 @@ export default function App() {
   );
 }
 
-// --- STYLES (BRUTALISM DESIGN) ---
+// --- STYLES (BRUTALISM) ---
 const layoutStyle = { padding: '20px', maxWidth: '800px', margin: 'auto', backgroundColor: '#FFFDF0', minHeight: '100vh', fontFamily: 'sans-serif' };
 const navStyle = { display: 'flex', justifyContent: 'space-between', marginBottom: '30px' };
 const logoStyle = { fontSize: '2rem', fontWeight: 900, lineHeight: 0.8, margin: 0 };
