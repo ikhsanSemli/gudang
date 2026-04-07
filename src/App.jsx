@@ -320,36 +320,63 @@ export default function App() {
             <div key={kategori} style={{marginBottom:'25px'}}>
             <div style={categoryHeader}><span style={categoryTag}>{kategori}</span><div style={categoryLine}></div></div>
             <div style={gridStyle}>
-                {list.map(item => (
-                <div key={item.id} style={cardStyle(item.stok <= item.min_stok, pendingChanges[item.id])}>
-                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                        <input defaultValue={item.kategori} onBlur={(e) => updateKategori(item.id, e.target.value)} style={miniInput} />
-                        <button onClick={async () => {
-                            setSelectedItem(item);
-                            const {data} = await supabase.from('log_aktivitas').select('*').eq('barang_id', item.id).order('created_at', { ascending: false }).limit(10);
-                            setHistory(data || []);
-                        }} style={iconSmall}><History size={14}/></button>
-                    </div>
-                    <h2 style={itemTitle}>{item.nama}</h2>
-                    
-                    {/* Fix Poin 3: Input stok yang bisa diketik langsung */}
-                    <div style={stokWrapper}>
-                        <input 
-                            type="number" 
-                            value={item.stok} 
-                            onChange={(e) => updateStokLokal(item, parseInt(e.target.value) || 0)}
-                            style={stokInput}
-                        />
-                        <span style={{fontSize:'0.6rem', fontWeight:900}}>{item.satuan}</span>
-                    </div>
+                {list.map(item => {
+                  const selisih = pendingChanges[item.id] || 0; // Ambil selisih dari state pending
+                  const stokAwal = originalStok.current[item.id] || 0; // Ambil stok awal dari ref
 
-                    <div style={{display:'flex', gap:'5px', marginTop:'8px'}}>
-                        <button onClick={() => updateStokLokal(item, item.stok - 1)} style={actionBtn('#FF9292')}><Minus size={14}/></button>
-                        <button onClick={() => updateStokLokal(item, item.stok + 1)} style={actionBtn('#99E2B4')}><Plus size={14}/></button>
+                  return (
+                    <div key={item.id} style={cardStyle(item.stok <= item.min_stok, selisih !== 0)}>
+                        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                            <input defaultValue={item.kategori} onBlur={(e) => updateKategori(item.id, e.target.value)} style={miniInput} />
+                            <button onClick={async () => {
+                                setSelectedItem(item);
+                                const {data} = await supabase.from('log_aktivitas').select('*').eq('barang_id', item.id).order('created_at', { ascending: false }).limit(10);
+                                setHistory(data || []);
+                            }} style={iconSmall}><History size={14}/></button>
+                        </div>
+                        
+                        <h2 style={itemTitle}>{item.nama}</h2>
+
+                        {/* --- INFO STOK AWAL & PERUBAHAN (TAMBAHAN BARU) --- */}
+                        <div style={{marginBottom: '5px', minHeight: '30px'}}>
+                            <div style={{fontSize: '0.6rem', fontWeight: 900, color: '#666'}}>
+                                STOK AWAL: {stokAwal}
+                            </div>
+                            {selisih !== 0 && (
+                                <div style={{
+                                    fontSize: '0.7rem', 
+                                    fontWeight: 900, 
+                                    color: selisih > 0 ? '#008529' : '#C40000',
+                                    backgroundColor: selisih > 0 ? '#E8F5E9' : '#FFEBEE',
+                                    display: 'inline-block',
+                                    padding: '2px 4px',
+                                    borderRadius: '4px',
+                                    border: '1px solid black'
+                                }}>
+                                    {selisih > 0 ? `+${selisih}` : selisih} {item.satuan}
+                                </div>
+                            )}
+                        </div>
+                        
+                        <div style={stokWrapper}>
+                            <input 
+                                type="number" 
+                                value={item.stok} 
+                                onChange={(e) => updateStokLokal(item, parseInt(e.target.value) || 0)}
+                                style={stokInput}
+                            />
+                            <span style={{fontSize:'0.6rem', fontWeight:900}}>{item.satuan}</span>
+                        </div>
+
+                        <div style={{display:'flex', gap:'5px', marginTop:'8px'}}>
+                            <button onClick={() => updateStokLokal(item, item.stok - 1)} style={actionBtn('#FF9292')}><Minus size={14}/></button>
+                            <button onClick={() => updateStokLokal(item, item.stok + 1)} style={actionBtn('#99E2B4')}><Plus size={14}/></button>
+                        </div>
+                        
+                        {item.stok <= item.min_stok && <div style={alertSticker}>ORDER!</div>}
                     </div>
-                    {item.stok <= item.min_stok && <div style={alertSticker}>ORDER!</div>}
-                </div>
-                ))}
+                  );
+                })}
             </div>
             </div>
         ))}
