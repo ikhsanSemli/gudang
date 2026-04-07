@@ -25,6 +25,7 @@ export default function App() {
   const [dailyLogs, setDailyLogs] = useState([]); 
   const [pendingChanges, setPendingChanges] = useState({}); 
   const originalStok = useRef({}); 
+  const [logDate, setLogDate] = useState(new Date().toISOString().split('T')[0]);
 
   useEffect(() => { 
     fetchBarang(); 
@@ -32,7 +33,7 @@ export default function App() {
     fetchDailyLogs();
     const savedUser = localStorage.getItem('gudang_user');
     if (savedUser) setCurrentUser(JSON.parse(savedUser));
-  }, []);
+  }, [logDate]);
 
   const fetchBarang = async () => {
     const { data } = await supabase.from('barang').select('*').order('nama');
@@ -46,10 +47,17 @@ export default function App() {
     setDaftarKasir(data || []);
   };
 
-  const fetchDailyLogs = async () => {
-    // Fix Poin 1: Hapus filter 'today' supaya bisa scroll ke belakang
-    const { data } = await supabase.from('log_aktivitas').select('*, barang(nama, satuan)')
-      .order('created_at', { ascending: false }).limit(50);
+  const fetchDailyLogs = async (targetDate = logDate) => {
+    // Mencari rentang waktu 00:00:00 sampai 23:59:59 di hari tersebut
+    const startOfDay = `${targetDate}T00:00:00.000Z`;
+    const endOfDay = `${targetDate}T23:59:59.999Z`;
+
+    const { data } = await supabase.from('log_aktivitas')
+      .select('*, barang(nama, satuan)')
+      .gte('created_at', startOfDay)
+      .lte('created_at', endOfDay)
+      .order('created_at', { ascending: false });
+      
     setDailyLogs(data || []);
   };
 
@@ -154,6 +162,12 @@ export default function App() {
     } catch (err) { alert("Gagal PDF: " + err.message); }
   };
 
+  const changeLogDate = (days) => {
+    const d = new Date(logDate);
+    d.setDate(d.getDate() + days);
+    setLogDate(d.toISOString().split('T')[0]);
+  };
+
   const groupedItems = items.reduce((acc, item) => {
     const cat = (item.kategori || 'LAINNYA').toUpperCase();
     if (!acc[cat]) acc[cat] = [];
@@ -242,23 +256,43 @@ export default function App() {
         ))}
       </div>
 
-      {/* Fix Poin 1: Section Aktivitas dengan Scroll */}
+      {/* --- SECTION LOG DENGAN NAVIGASI HARI --- */}
       <div style={logSection}>
-        <div style={{display:'flex', alignItems:'center', gap:'10px', marginBottom:'15px'}}>
+        <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'15px'}}>
+          <div style={{display:'flex', alignItems:'center', gap:'10px'}}>
             <Clock size={20}/>
-            <h3 style={{margin:0, fontWeight:900}}>RIWAYAT AKTIVITAS (SCROLLABLE)</h3>
+            <h3 style={{margin:0, fontWeight:900, fontSize:'0.9rem'}}>RIWAYAT AKTIVITAS</h3>
+          </div>
+          
+          {/* NAVIGASI TANGGAL */}
+          <div style={{display:'flex', border:'3px solid black', backgroundColor:'white', boxShadow:'3px 3px 0px black'}}>
+            <button onClick={() => changeLogDate(-1)} style={navDayBtn}><Minus size={14}/></button>
+            <div style={dateDisplay}>
+              {new Date(logDate).toLocaleDateString('id-ID', { day: '2-digit', month: 'short' })}
+            </div>
+            <button 
+              onClick={() => changeLogDate(1)} 
+              style={{...navDayBtn, opacity: logDate === new Date().toISOString().split('T')[0] ? 0.3 : 1}}
+              disabled={logDate === new Date().toISOString().split('T')[0]}
+            ><Plus size={14}/></button>
+          </div>
         </div>
+
         <div style={logScrollContainer}>
-            {dailyLogs.map(log => (
+            {dailyLogs.length > 0 ? dailyLogs.map(log => (
                 <div key={log.id} style={logCard}>
                     <div style={logIcon(log.aksi)}>{log.aksi === 'masuk' ? <ArrowUpRight size={14}/> : <ArrowDownLeft size={14}/>}</div>
                     <div style={{flex:1}}>
                         <div style={logText}><b>{log.barang?.nama}</b></div>
-                        <div style={logMeta}>{log.kasir_nama?.toUpperCase()} • {new Date(log.created_at).toLocaleString('id-ID', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'})}</div>
+                        <div style={logMeta}>{log.kasir_nama?.toUpperCase()} • {new Date(log.created_at).toLocaleTimeString('id-ID', {hour:'2-digit', minute:'2-digit'})}</div>
                     </div>
                     <div style={logQty(log.aksi)}>{log.aksi === 'masuk' ? '+' : '-'}{log.jumlah}</div>
                 </div>
-            ))}
+            )) : (
+              <div style={{textAlign:'center', padding:'30px', border:'2px dashed black', fontSize:'0.7rem'}}>
+                Tidak ada aktivitas pada tanggal ini.
+              </div>
+            )}
         </div>
       </div>
 
@@ -360,3 +394,5 @@ const formStyle = { border: '3px solid black', padding: '15px', marginBottom: '2
 const inputStyle = { width: '100%', padding: '8px', border: '2px solid black', marginBottom: '5px', boxSizing:'border-box', fontFamily:'monospace', fontWeight:900 };
 const miniLabel = { fontSize: '0.55rem', fontWeight: 900 };
 const originalInfo = { fontSize: '0.5rem', fontWeight: 900, color: 'brown' };
+const navDayBtn = { padding: '5px 10px', border: 'none', backgroundColor: '#FFD600', cursor: 'pointer', fontWeight: 900, borderRight: '2px solid black', borderLeft: '2px solid black' };
+const dateDisplay = { padding: '5px 10px', fontSize: '0.7rem', fontWeight: 900, minWidth: '60px', textAlign: 'center', alignSelf: 'center' };
