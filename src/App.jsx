@@ -162,6 +162,46 @@ export default function App() {
     } catch (err) { alert("Gagal PDF: " + err.message); }
   };
 
+  const sendWA = () => {
+    const tglTerpilih = new Date(logDate).toLocaleDateString('id-ID', { 
+      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' 
+    });
+    
+    let pesan = `*📦 LAPORAN GUDANG SANTUY*\n_Tanggal: ${tglTerpilih}_\n\n`;
+    
+    // 1. BAGIAN AKTIVITAS
+    pesan += `*─── AKTIVITAS ${new Date(logDate).toLocaleDateString('id-ID', {day:'2-digit', month:'short'}).toUpperCase()} ───*\n`;
+    if (dailyLogs.length > 0) {
+      dailyLogs.forEach(l => { 
+        const simbol = l.aksi === 'masuk' ? '📥' : '📤';
+        pesan += `${simbol} ${l.barang?.nama}: *${l.aksi === 'masuk' ? '+' : '-'}${l.jumlah}*\n`; 
+      });
+    } else { 
+      pesan += `_Tidak ada aktivitas_\n`; 
+    }
+
+    // 2. BAGIAN SISA STOK (TAMBAHAN BARU)
+    pesan += `\n*─── SISA STOK GUDANG ───*\n`;
+    if (items.length > 0) {
+      items.forEach(i => {
+        pesan += `• ${i.nama}: *${i.stok}* ${i.satuan}\n`;
+      });
+    } else {
+      pesan += `_Data barang kosong_\n`;
+    }
+
+    // 3. BAGIAN STOK KRITIS
+    pesan += `\n*─── ⚠️ STOK KRITIS (ORDER!) ───*\n`;
+    const kritis = items.filter(i => i.stok <= i.min_stok);
+    if (kritis.length > 0) {
+      kritis.forEach(i => { pesan += `- ${i.nama}: *Sisa ${i.stok}* ${i.satuan}\n`; });
+    } else {
+      pesan += `_Semua stok aman! ✅_\n`;
+    }
+
+    window.open(`https://wa.me/?text=${encodeURIComponent(pesan)}`, '_blank');
+  };
+
   const changeLogDate = (days) => {
     const d = new Date(logDate);
     d.setDate(d.getDate() + days);
@@ -197,6 +237,8 @@ export default function App() {
       <nav style={navStyle}>
         <div><h1 style={logoStyle}>GUDANG<br/>SANTUY</h1><div style={badgeStyle}>{currentUser.nama.toUpperCase()}</div></div>
         <div style={{display:'flex', gap:'8px'}}>
+          {/* TOMBOL WA KEMBALI HADIR */}
+          <button onClick={sendWA} title="Kirim WA" style={iconBtnStyle('#25D366')}><MessageCircle color="white"/></button>
           <button onClick={() => setShowAddForm(!showAddForm)} style={iconBtnStyle('#C3FAFF')}><PackagePlus/></button>
           <button onClick={() => setShowReportModal(true)} style={iconBtnStyle('#99E2B4')}><FileText/></button>
           <button onClick={handleLogout} style={iconBtnStyle('#FF9292')}><LogOut/></button>
