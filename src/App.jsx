@@ -245,6 +245,63 @@ export default function App() {
         </div>
       </nav>
 
+      {/* --- FORM TAMBAH BARANG (DIPASANG KEMBALI) --- */}
+      <AnimatePresence>
+        {showAddForm && (
+          <motion.form 
+            initial={{opacity:0, y:-10}} 
+            animate={{opacity:1, y:0}} 
+            exit={{opacity:0, y:-10}}
+            onSubmit={async (e) => {
+              e.preventDefault();
+              const dataBaru = { 
+                ...newItem, 
+                kategori: newItem.kategori.toUpperCase() || 'LAINNYA', 
+                stok: parseInt(newItem.stok) || 0, 
+                min_stok: parseInt(newItem.min_stok) || 0 
+              };
+              
+              const { error } = await supabase.from('barang').insert([dataBaru]);
+              
+              if (error) {
+                alert("Gagal tambah: " + error.message);
+              } else {
+                setNewItem({ nama: '', satuan: 'pcs', min_stok: 5, kategori: '', stok: 0 }); 
+                setShowAddForm(false); 
+                fetchBarang(); 
+                alert("Barang baru berhasil ditambah! ✨");
+              }
+            }} 
+            style={formStyle}
+          >
+            <div style={{display:'flex', justifyContent:'space-between', marginBottom:'10px'}}>
+              <b style={{fontSize:'0.8rem'}}>📦 TAMBAH BARANG BARU</b> 
+              <X onClick={()=>setShowAddForm(false)} style={{cursor:'pointer'}} size={18}/>
+            </div>
+            
+            <input placeholder="Nama Barang" value={newItem.nama} onChange={e => setNewItem({...newItem, nama: e.target.value})} style={inputStyle} required />
+            
+            <div style={{display:'flex', gap:'5px'}}>
+                <input placeholder="Kategori (Contoh: SNACK)" value={newItem.kategori} onChange={e => setNewItem({...newItem, kategori: e.target.value})} style={{...inputStyle, flex:2}} />
+                <input placeholder="Satuan (pcs/box)" value={newItem.satuan} onChange={e => setNewItem({...newItem, satuan: e.target.value})} style={{...inputStyle, flex:1}} />
+            </div>
+            
+            <div style={{display:'flex', gap:'10px'}}>
+              <div style={{flex:1}}>
+                  <label style={miniLabel}>STOK AWAL</label>
+                  <input type="number" value={newItem.stok} onChange={e => setNewItem({...newItem, stok: e.target.value})} style={inputStyle} />
+              </div>
+              <div style={{flex:1}}>
+                  <label style={miniLabel}>BATAS MINIM (LIMIT)</label>
+                  <input type="number" value={newItem.min_stok} onChange={e => setNewItem({...newItem, min_stok: e.target.value})} style={inputStyle} />
+              </div>
+            </div>
+            
+            <button type="submit" style={mainBtnStyle('#99E2B4')}>SIMPAN BARANG</button>
+          </motion.form>
+        )}
+      </AnimatePresence>
+
       {/* DASHBOARD RINGKAS */}
       <div style={quickLookWrapper}>
         <div style={statCard('#C3FAFF')}>
